@@ -55,21 +55,25 @@ private fun applyMarker(marker: Marker, data: MapMarkerData, mapView: MapView) {
     }
 }
 
-// 天地图样式 → 底图图层 / 注记图层 / 最大缩放级别。
-// ter(地形晕渲)底图服务端仅提供到 14 级，需限制地图缩放上限，避免超出后底图空白。
+// App 支持的全局地图缩放范围（允许超出瓦片服务端原生层级进行数字超分放大 overzoom）
+private const val APP_MIN_ZOOM = 3.0
+private const val APP_MAX_ZOOM = 22.0
+
+// 天地图样式 → 底图图层 / 注记图层 / 服务端瓦片最大缩放级别。
+// ter(地形晕渲)服务端瓦片仅提供到 14 级，其余为 18 级。超过后由 MapView 自动数字放大显示。
 private data class TiandituLayerConfig(
     val base: String,
     val label: String,
-    val maxZoom: Double
+    val tileMaxZoom: Int
 )
 
 private fun tiandituLayerFor(style: String): TiandituLayerConfig = when (style) {
     TiandituTileSource.STYLE_TERRAIN ->
-        TiandituLayerConfig("ter", "cta", TiandituTileSource.MAX_ZOOM_TERRAIN.toDouble())
+        TiandituLayerConfig("ter", "cta", TiandituTileSource.MAX_ZOOM_TERRAIN)
     TiandituTileSource.STYLE_SATELLITE ->
-        TiandituLayerConfig("img", "cia", TiandituTileSource.MAX_ZOOM.toDouble())
+        TiandituLayerConfig("img", "cia", TiandituTileSource.MAX_ZOOM)
     else ->
-        TiandituLayerConfig("vec", "cva", TiandituTileSource.MAX_ZOOM.toDouble())
+        TiandituLayerConfig("vec", "cva", TiandituTileSource.MAX_ZOOM)
 }
 
 @Composable
@@ -100,13 +104,6 @@ fun OsmMapView(
     // 最后一次地图交互时间（指南针空闲休眠依据），先于 mapView 定义供内部回调引用
     val lastMapInteractionMs = remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    // 当前底图样式的最大缩放上限：天地图按样式（地形仅 14 级），OSM 用引擎上限
-    val effectiveMaxZoom = if (tiandituKey.isBlank()) {
-        TileSystem.getMaximumZoomLevel().toDouble()
-    } else {
-        tiandituLayerFor(tiandituStyle).maxZoom
-    }
-
     val mapView = remember {
         val cacheDir = File(context.cacheDir, "osmdroid")
         if (!cacheDir.exists()) cacheDir.mkdirs()
@@ -126,10 +123,10 @@ fun OsmMapView(
         MapView(context).apply {
             setMultiTouchControls(true)
             setUseDataConnection(true)
-            controller.setZoom(zoomLevel.coerceAtMost(effectiveMaxZoom))
+            controller.setZoom(zoomLevel.coerceIn(APP_MIN_ZOOM, APP_MAX_ZOOM))
             controller.setCenter(GeoPoint(initialLatitude, initialLongitude))
-            minZoomLevel = 3.0
-            maxZoomLevel = TileSystem.getMaximumZoomLevel().toDouble()
+            minZoomLevel = APP_MIN_ZOOM
+            maxZoomLevel = APP_MAX_ZOOM
 
             // 地图触摸监听
             val touchOverlay = MapEventsOverlay(object : MapEventsReceiver {
@@ -217,27 +214,21 @@ fun OsmMapView(
 
         if (tiandituKey.isBlank()) {
             mapView.setTileProvider(MapTileProviderBasic(context, TileSourceFactory.MAPNIK))
-            mapView.maxZoomLevel = TileSystem.getMaximumZoomLevel().toDouble()
+            mapView.maxZoomLevel = APP_MAX_ZOOM
         } else {
             val layer = tiandituLayerFor(tiandituStyle)
             val baseSource = TiandituTileSource(
-                "TIANDITU_${layer.base}", layer.base, tiandituKey, maxZoom = layer.maxZoom.toInt()
+                "TIANDITU_${layer.base}", layer.base, tiandituKey, maxZoom = layer.tileMaxZoom
             )
             val labelSource = TiandituTileSource(
-                "TIANDITU_${layer.label}", layer.label, tiandituKey, maxZoom = layer.maxZoom.toInt()
+                "TIANDITU_${layer.label}", layer.label, tiandituKey, maxZoom = layer.tileMaxZoom
             )
 
             mapView.setTileProvider(MapTileProviderBasic(context, baseSource))
             val labelOverlay = TilesOverlay(MapTileProviderBasic(context, labelSource), context)
             mapView.overlays.add(labelOverlay)
             annotationOverlay = labelOverlay
-            mapView.maxZoomLevel = layer.maxZoom
-            // 从高缩放样式（矢量/卫星）切到缩放上限更低的样式（如地形）时，回退到新上限
-            mapView.post {
-                if (mapView.zoomLevelDouble > layer.maxZoom) {
-                    mapView.controller.setZoom(layer.maxZoom)
-                }
-            }
+            mapView.maxZoomLevel = APP_MAX_ZOOM
         }
         mapView.invalidate()
     }
@@ -247,8 +238,8 @@ fun OsmMapView(
         if (targetCenter != null && animateToTarget) {
             val (lat, lng) = targetCenter
             if (lat != 0.0 && lng != 0.0) {
-                val zoom = (zoomToTargetLevel ?: mapView.zoomLevelDouble.coerceAtLeast(15.0))
-                    .coerceAtMost(effectiveMaxZoom)
+                val targetZoom = zoomToTargetLevel ?: 15.0
+                val zoom = mapView.zoomLevelDouble.coerceAtLeast(targetZoom).coerceAtMost(APP_MAX_ZOOM)
                 mapView.post {
                     if (!mapView.isLaidOut) return@post
                     val h = mapView.height
@@ -360,14 +351,14 @@ fun OsmMapView(
             if (pts.size == 1) {
                 mapView.controller.setCenter(pts[0])
                 mapView.controller.setZoom(
-                    mapView.zoomLevelDouble.coerceAtLeast(16.0).coerceAtMost(effectiveMaxZoom)
+                    mapView.zoomLevelDouble.coerceAtLeast(16.0).coerceAtMost(APP_MAX_ZOOM)
                 )
             } else {
                 val box = BoundingBox.fromGeoPoints(pts)
                 val padding = with(density) { 64.dp.toPx().toInt() }
                 mapView.zoomToBoundingBox(box, false, padding)
-                if (mapView.zoomLevelDouble > effectiveMaxZoom) {
-                    mapView.controller.setZoom(effectiveMaxZoom)
+                if (mapView.zoomLevelDouble > APP_MAX_ZOOM) {
+                    mapView.controller.setZoom(APP_MAX_ZOOM)
                 }
             }
             mapView.invalidate()
