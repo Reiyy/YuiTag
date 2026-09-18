@@ -1,5 +1,6 @@
 package com.yuitag.finder.ui.components
 
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -87,7 +89,11 @@ fun DeviceDetailContent(
         latestLocation?.let { dateFormatter.format(Date(it.timestamp * 1000)) }
     }
 
-    Column(modifier = modifier) {
+    Column(
+        modifier = modifier.pointerInput(Unit) {
+            detectTapGestures { /* 消费详情页空白区域点击，避免向底层穿透 */ }
+        }
+    ) {
         // --- 标题栏 ---
         Row(
             modifier = Modifier

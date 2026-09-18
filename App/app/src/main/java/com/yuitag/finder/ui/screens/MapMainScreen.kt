@@ -14,6 +14,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -126,6 +127,7 @@ fun MapMainScreen(
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     val markerIcons = rememberMapMarkerIcons()
+    val deviceListState = rememberLazyListState()
 
     // 缓存从 themePath 加载的 mini_icon.png 位图，避免每次重组重复解码
     val customImageBitmapCache = remember { mutableMapOf<String, Bitmap?>() }
@@ -472,51 +474,40 @@ fun MapMainScreen(
                 }
 
                 Box(modifier = Modifier.fillMaxSize()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .zIndex(if (displayedMode == BottomSheetMode.LIST) 1f else 0f)
-                            .graphicsLayer {
-                                alpha = if (displayedMode == BottomSheetMode.LIST) 1f else 0f
-                            }
-                    ) {
-                        DeviceListContent(
-                            devices = boundDevices,
-                            deviceBatteries = uiState.deviceBatteries,
-                            deviceHealthStates = uiState.deviceHealthStates,
-                            onDeviceClick = { device ->
-                                if (sheetFraction < collapsedThreshold) {
-                                    startSettle(anchors[1])
-                                } else {
-                                    viewModel.selectDevice(device)
-                                }
-                            },
-                            onNavigateToManualImport = onNavigateToManualImport,
-                            viewModel = viewModel,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .zIndex(if (displayedMode == BottomSheetMode.DETAIL) 1f else 0f)
-                            .graphicsLayer {
-                                alpha = if (displayedMode == BottomSheetMode.DETAIL) 1f else 0f
-                            }
-                    ) {
-                        detailDevice?.let { device ->
-                            DeviceDetailContent(
-                                device = device,
-                                onBack = { viewModel.backToList() },
-                                onNavigateToConfig = onNavigateToConfig,
-                                onNavigateToPersonalization = onNavigateToPersonalization,
-                                onNavigateToFind = onNavigateToFind,
-                                onNavigateToLocationHistory = onNavigateToLocationHistory,
-                                onNavigateToTrajectory = onNavigateToTrajectory,
-                                onNavigateToDetail = onNavigateToDetail,
+                    when (displayedMode) {
+                        BottomSheetMode.LIST -> {
+                            DeviceListContent(
+                                devices = boundDevices,
+                                deviceBatteries = uiState.deviceBatteries,
+                                deviceHealthStates = uiState.deviceHealthStates,
+                                onDeviceClick = { device ->
+                                    if (sheetFraction < collapsedThreshold) {
+                                        startSettle(anchors[1])
+                                    } else {
+                                        viewModel.selectDevice(device)
+                                    }
+                                },
+                                onNavigateToManualImport = onNavigateToManualImport,
                                 viewModel = viewModel,
+                                lazyListState = deviceListState,
                                 modifier = Modifier.fillMaxSize()
                             )
+                        }
+                        BottomSheetMode.DETAIL -> {
+                            detailDevice?.let { device ->
+                                DeviceDetailContent(
+                                    device = device,
+                                    onBack = { viewModel.backToList() },
+                                    onNavigateToConfig = onNavigateToConfig,
+                                    onNavigateToPersonalization = onNavigateToPersonalization,
+                                    onNavigateToFind = onNavigateToFind,
+                                    onNavigateToLocationHistory = onNavigateToLocationHistory,
+                                    onNavigateToTrajectory = onNavigateToTrajectory,
+                                    onNavigateToDetail = onNavigateToDetail,
+                                    viewModel = viewModel,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
                         }
                     }
                 }

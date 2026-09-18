@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -122,7 +123,8 @@ fun DeviceListContent(
     onDeviceClick: (YuiTagDevice) -> Unit,
     onNavigateToManualImport: () -> Unit = {},
     viewModel: MapMainViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    lazyListState: LazyListState = rememberLazyListState()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val hapticFeedback = LocalHapticFeedback.current
@@ -153,7 +155,6 @@ fun DeviceListContent(
                 modifier = Modifier.weight(1f)
             )
         } else {
-            val lazyListState = rememberLazyListState()
             val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
                 val moving = localList.removeAt(from.index)
                 localList.add(to.index, moving)
