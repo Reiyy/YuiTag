@@ -1,0 +1,20 @@
+*.iml
+.gradle/
+.kotlin/
+local.properties
+.idea/
+.DS_Store
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+Thumbs.db
+*.keystore
+*.jks
+*.p12
+*.pem
+*.log
+
+# 本地私有脚本与说明
+build.ps1
+AGENTS.md

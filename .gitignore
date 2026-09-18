@@ -1,0 +1,118 @@
+# =======================================================
+# 个人资料与参考文件
+# =======================================================
+other/
+
+# =======================================================
+# 敏感私钥与设备凭据
+# =======================================================
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+*.keys
+*_keyfile
+*_devices.json
+
+# =======================================================
+# 操作系统与通用编辑器
+# =======================================================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+*.swp
+*.bak
+*~
+*.tmp
+*.temp
+*.log
+
+# IDE & 编辑器配置
+**/.idea/
+**/.vscode/*
+!**/.vscode/settings.json
+*.iml
+
+# =======================================================
+# Android App
+# =======================================================
+**/.gradle/
+**/.kotlin/
+build/
+**/build/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.dex
+
+# 本地私有脚本与说明
+build.ps1
+**/build.ps1
+AGENTS.md
+**/AGENTS.md
+
+# =======================================================
+# 单片机固件与硬件构建（限定在 Firmware 作用域，防跨模块误伤）
+# =======================================================
+# 构建产物与临时目录
+**/build*/
+Firmware/**/GNU ARM*/
+Firmware/**/artifact/
+Firmware/**/trashed_modified_files/
+Firmware/**/_backup*/
+
+# Silicon Labs (Simplicity Studio)
+Firmware/**/.settings/
+Firmware/**/.uceditor/
+Firmware/**/.pdm/
+Firmware/**/.projectlinkstore
+Firmware/**/.slc_state/
+Firmware/**/imported_project_report.html
+Firmware/**/simplicity_sdk*/
+Firmware/**/autogen/
+
+# 固件产物与中间文件
+*.o
+*.obj
+*.elf
+*.axf
+*.out
+*.map
+*.d
+*.su
+*.crf
+*.htm
+*.dep
+*.hex
+*.bin
+*.s37
+*.gbl
+*.uf2
+
+# 避免 *.bin 误伤未来 App 的静态资源文件（字库、音频、固件升级包预置等）
+!**/src/main/assets/**
+!**/src/main/res/raw/**
+
+# CMake 与 Ninja
+CMakeCache.txt
+CMakeFiles/
+.ninja_deps
+.ninja_log
+compile_commands.json
+CMakeUserPresets.json
+
+# Python 工具缓存
+__pycache__/
+*.pyc
+
+# =======================================================
+# 本地压缩归档包
+# =======================================================
+*.7z
+*.rar
+*.zip

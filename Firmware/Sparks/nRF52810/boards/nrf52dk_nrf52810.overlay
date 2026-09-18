@@ -1,0 +1,56 @@
+/*
+ * YuiTag nRF52810 板级设备树 Overlay 配置:
+ * 1. PWM0 驱动压电蜂鸣器差分互补输出: P0.02 (OUT0 正向) / P0.03 (OUT1 反向)。
+ * 2. SAADC 通道 0 采样内部 VDD 电源轨，用于电池电量预估。
+ * 3. 启用 SoC 内部 DC/DC 转换器降低运行功耗。
+ * 4. 禁用未使用的 UART0 / I2C0 / SPI0 外设以节省静态电流。
+ */
+
+#include <zephyr/dt-bindings/regulator/nrf5x.h>
+
+/ {
+	zephyr,user {
+		io-channels = <&adc 0>;
+	};
+};
+
+/* 启用 SoC 内部 DC/DC 降压转换器 */
+&reg {
+	regulator-initial-mode = <NRF5X_REG_MODE_DCDC>;
+};
+
+&pinctrl {
+	pwm0_default: pwm0_default {
+		group1 {
+			psels = <NRF_PSEL(PWM_OUT0, 0, 2)>,
+				<NRF_PSEL(PWM_OUT1, 0, 3)>;
+		};
+	};
+
+	pwm0_sleep: pwm0_sleep {
+		group1 {
+			psels = <NRF_PSEL(PWM_OUT0, 0, 2)>,
+				<NRF_PSEL(PWM_OUT1, 0, 3)>;
+			low-power-enable;
+		};
+	};
+};
+
+&pwm0 {
+	status = "okay";
+	pinctrl-0 = <&pwm0_default>;
+	pinctrl-1 = <&pwm0_sleep>;
+	pinctrl-names = "default", "sleep";
+};
+
+&uart0 {
+	status = "disabled";
+};
+
+&i2c0 {
+	status = "disabled";
+};
+
+&spi0 {
+	status = "disabled";
+};

@@ -1,0 +1,82 @@
+plugins {
+    alias(libs.plugins.androidApplication)
+    alias(libs.plugins.kotlinAndroid)
+    alias(libs.plugins.kotlinCompose)
+    alias(libs.plugins.ksp)
+}
+
+android {
+    namespace = "com.yuitag.finder"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "com.yuitag.finder"
+        minSdk = 31
+        targetSdk = 35
+        versionCode = 2
+        versionName = "1.0.0"
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+        }
+        debug {}
+    }
+
+    buildFeatures {
+        buildConfig = true
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+}
+
+// Room schema 导出目录（用于未来编写正式迁移）
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+dependencies {
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.navigation.compose)
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.ui)
+    implementation(libs.compose.ui.graphics)
+    implementation(libs.compose.ui.tooling.preview)
+    implementation(libs.compose.material3)
+    implementation(libs.compose.material.icons.extended)
+    debugImplementation(libs.compose.ui.tooling)
+
+    // Room
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
+
+    // osmdroid (map)
+    implementation(libs.osmdroid.android)
+
+    // Lottie Compose (animation)
+    implementation(libs.lottie.compose)
+
+    // Google Play Services Location
+    implementation(libs.play.services.location)
+
+    // 拖拽排序（sh.calvin.reorderable）
+    implementation(libs.reorderable)
+
+    // Bouncy Castle (secp224r1, AES-GCM for FindMy decryption)
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78")
+
+    // Gson (theme config JSON serialization)
+    implementation("com.google.code.gson:gson:2.11.0")
+}

@@ -1,0 +1,55 @@
+/*
+ * YuiTag nRF52 DK overlay:
+ * PWM1 drives the piezo buzzer differentially on P0.13 (OUT0) / P0.14 (OUT1).
+ * Channel polarity is set in code (OUT1 inverted).
+ * SAADC channel 0 measures VDD (supply rail) for battery estimation.
+ */
+
+#include <zephyr/dt-bindings/regulator/nrf5x.h>
+
+/ {
+	zephyr,user {
+		io-channels = <&adc 0>;
+	};
+};
+
+/* Enable SoC internal DC/DC converter */
+&reg {
+	regulator-initial-mode = <NRF5X_REG_MODE_DCDC>;
+};
+
+&pinctrl {
+	pwm1_default: pwm1_default {
+		group1 {
+			psels = <NRF_PSEL(PWM_OUT0, 0, 13)>,
+				<NRF_PSEL(PWM_OUT1, 0, 14)>;
+		};
+	};
+
+	pwm1_sleep: pwm1_sleep {
+		group1 {
+			psels = <NRF_PSEL(PWM_OUT0, 0, 13)>,
+				<NRF_PSEL(PWM_OUT1, 0, 14)>;
+			low-power-enable;
+		};
+	};
+};
+
+&pwm1 {
+	status = "okay";
+	pinctrl-0 = <&pwm1_default>;
+	pinctrl-1 = <&pwm1_sleep>;
+	pinctrl-names = "default", "sleep";
+};
+
+&uart0 {
+	status = "disabled";
+};
+
+&i2c0 {
+	status = "disabled";
+};
+
+&spi0 {
+	status = "disabled";
+};

@@ -1,0 +1,32 @@
+# Silicon Labs Project Configuration Tools: slcp, v0, Component selection file.
+project_name: YuiTag_bootloader-apploader
+label: YuiTag_bootloader-apploader
+description: |
+  Standalone Bootloader using the Bluetooth AppLoader OTA DFU. This implements in-place application updates using Bluetooth connection.
+category: Example|Bootloader
+filter:
+- name: Device Type
+  value: [SoC]
+- name: MCU
+  value: [Bootloader]
+- name: Project Difficulty
+  value: [Advanced]
+package: bootloader
+quality: production
+readme:
+- {path: readme.md}
+- {path: readme.md}
+sdk: {id: simplicity_sdk, version: 2025.6.3}
+toolchain_settings: []
+component:
+- {id: EFR32BG22C224F512GM32}
+- {id: bootloader_apploader}
+- {id: bootloader_core}
+- {id: bootloader_debug}
+- {id: bootloader_image_parser}
+ui_hints:
+  highlight:
+  - {path: readme.md, focus: true}
+post_build:
+- {path: YuiTag_bootloader-apploader.slpb, profile: bootloader_series_2}
+
