@@ -9,6 +9,7 @@
 #include "yuitag_platform.h"
 #include "yuitag_crypto.h"
 #include "yuitag_device.h"
+#include "yuitag_buzzer_types.h"
 #include "yuitag_ble.h"
 #include "app.h"
 
@@ -35,7 +36,7 @@ static void bt_ready(int err)
     bool resetTriggered = yuitag_device_power_cycle_check(&g_dev);
 
     if (!resetTriggered) {
-        platform_startup_beep();
+        yuitag_beep_startup();
     }
 
     yuitag_ble_set_device_name(g_dev.deviceName);

@@ -229,35 +229,6 @@ void platform_storage_clear_all(void)
 }
 
 // ============================================================
-// 蜂鸣器提示音 (开机音 / 恢复出厂设置音)
-// ============================================================
-static const buzzer_note_t s_startup_melody[] = {
-    BUZZER_NOTE_BEEP(100),
-    BUZZER_NOTE_REST(100),
-    BUZZER_NOTE_BEEP(100),
-};
-#define STARTUP_MELODY_LEN (sizeof(s_startup_melody) / sizeof(s_startup_melody[0]))
-
-static const buzzer_note_t s_factory_reset_melody[] = {
-    BUZZER_NOTE_BEEP(100),
-    BUZZER_NOTE_REST(80),
-    BUZZER_NOTE_TONE(2000, 100),
-    BUZZER_NOTE_REST(80),
-    BUZZER_NOTE_BEEP(100),
-};
-#define FACTORY_RESET_MELODY_LEN (sizeof(s_factory_reset_melody) / sizeof(s_factory_reset_melody[0]))
-
-void platform_startup_beep(void)
-{
-    buzzer_play_melody(s_startup_melody, STARTUP_MELODY_LEN, false, NULL);
-}
-
-void platform_factory_reset_beep(void)
-{
-    buzzer_play_melody(s_factory_reset_melody, FACTORY_RESET_MELODY_LEN, false, NULL);
-}
-
-// ============================================================
 // 平台驱动初始化
 // ============================================================
 void platform_init(void)

@@ -62,7 +62,7 @@ void app_init(void)
     // 初始化加密子系统
     yuitag_crypto_init();
 
-    // 启动周期性心跳与电量检测定时器 (基于 sleeptimer，支持 EM2 运行)
+    // 启动周期性心跳与电量检测定时器 (SDK自动处理EM2低功耗休眠)
     app_timer_start(&s_periodic_timer,
                     PERIODIC_CHECK_INTERVAL_MS,
                     periodic_timer_callback,

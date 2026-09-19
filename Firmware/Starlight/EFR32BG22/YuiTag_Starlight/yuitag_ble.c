@@ -5,6 +5,8 @@
 #include "yuitag_ble.h"
 #include "yuitag_crypto.h"
 #include "yuitag_platform.h"
+#include "yuitag_adv.h"
+#include "yuitag_buzzer_types.h"
 #include "gatt_db.h"
 #include "app.h"
 
@@ -36,92 +38,22 @@ static uint16_t s_mtu = 23;
 
 /* --- 广播数据组包 --- */
 
-// 组装 LTV 格式广播数据包
-static size_t build_adv_data(YuiTagDevice *dev, uint8_t *buf, size_t maxSize)
+// 将 YuiTagCore 构造的 AD 段序列化为 LTV 格式原始字节流
+// (段布局/字段选择逻辑统一在 yuitag_adv.c, 此处仅做字节序列化)
+static size_t serialize_segs_ltv(const yuitag_adv_seg_t *segs, size_t count,
+                                 uint8_t *buf, size_t maxSize)
 {
     size_t pos = 0;
-
-    // Flags: LE General Discoverable + BR/EDR Not Supported
-    if (pos + 3 > maxSize) return 0;
-    buf[pos++] = 0x02;
-    buf[pos++] = 0x01;
-    buf[pos++] = 0x06;
-
-    // 厂商自定义数据
-    if (dev->isBound) {
-        // 绑定模式: [厂商ID(2)][版本(1)][ShortUID(2)]
-        if (pos + 7 > maxSize) return 0;
-        buf[pos++] = 0x06;
-        buf[pos++] = 0xFF;
-        buf[pos++] = YUITAG_COMPANY_ID & 0xFF;
-        buf[pos++] = (YUITAG_COMPANY_ID >> 8) & 0xFF;
-        buf[pos++] = 0x01;
-        buf[pos++] = dev->shortUid[0];
-        buf[pos++] = dev->shortUid[1];
-
-        // Service Data: 电池电量 (UUID: 0x180F)
-        if (pos + 5 > maxSize) return 0;
-        buf[pos++] = 0x04;
-        buf[pos++] = 0x16;
-        buf[pos++] = UUID16_BATT & 0xFF;
-        buf[pos++] = (UUID16_BATT >> 8) & 0xFF;
-        buf[pos++] = dev->batteryLevel;
-
-#ifdef YUITAG_FINDMY_DEBUG
-        {
-            if (pos + 16 <= maxSize) {
-                uint8_t fmKey[FINDMY_KEY_LEN];
-                bool keyOk = yuitag_findmy_get_current_key(fmKey);
-                uint8_t fmStatus = yuitag_findmy_get_status();
-                uint8_t fmError  = yuitag_findmy_get_last_error();
-                buf[pos++] = 0x0F;
-                buf[pos++] = 0x16;
-                buf[pos++] = UUID16_DEBUG_FINDMY_KEY & 0xFF;
-                buf[pos++] = (UUID16_DEBUG_FINDMY_KEY >> 8) & 0xFF;
-                buf[pos++] = fmStatus;
-                buf[pos++] = fmError;
-                buf[pos++] = 0;
-                if (keyOk) {
-                    memcpy(&buf[pos], fmKey, 9);
-                } else {
-                    memset(&buf[pos], 0, 9);
-                }
-                pos += 9;
-            }
+    for (size_t i = 0; i < count; i++) {
+        if (pos + 2 + segs[i].len > maxSize) {
+            return 0;
         }
-#endif
-    } else {
-        // 未绑定初始模式: [厂商ID(2)][版本(1)][ShortUID(2)][绑定标志=0]
-        if (pos + 8 > maxSize) return 0;
-        buf[pos++] = 0x07;
-        buf[pos++] = 0xFF;
-        buf[pos++] = YUITAG_COMPANY_ID & 0xFF;
-        buf[pos++] = (YUITAG_COMPANY_ID >> 8) & 0xFF;
-        buf[pos++] = 0x01;
-        buf[pos++] = dev->shortUid[0];
-        buf[pos++] = dev->shortUid[1];
-        buf[pos++] = 0x00;
+        buf[pos++] = (uint8_t)(segs[i].len + 1);
+        buf[pos++] = segs[i].type;
+        memcpy(&buf[pos], segs[i].data, segs[i].len);
+        pos += segs[i].len;
     }
-
     return pos;
-}
-
-// 组装扫描响应包 (完整设备名称)
-static size_t build_scan_response(YuiTagDevice *dev, uint8_t *buf, size_t maxSize)
-{
-    size_t nameLen = strlen(dev->deviceName);
-    if (nameLen > DEVICE_NAME_MAX_LEN) {
-        nameLen = DEVICE_NAME_MAX_LEN;
-    }
-
-    size_t total = 2 + nameLen;
-    if (total > maxSize) return 0;
-
-    buf[0] = (uint8_t)(nameLen + 1);
-    buf[1] = 0x09;
-    memcpy(buf + 2, dev->deviceName, nameLen);
-
-    return total;
 }
 
 /* --- 广播启停与参数配置 --- */
@@ -152,8 +84,20 @@ static void start_advertising(YuiTagDevice *dev, bool connectable)
 
     // 仅在载荷或连接属性改变时更新广播数据，避免无效重设
     if (!s_adv_data_set || connectable != s_adv_connectable) {
-        advLen = build_adv_data(dev, advData, sizeof(advData));
-        scanLen = build_scan_response(dev, scanResp, sizeof(scanResp));
+        // 主广播包字段段 (flags + 厂商数据 + [绑定后]电量 + [debug]诊断)
+        uint8_t adStorage[32];
+        yuitag_adv_seg_t adSegs[4];
+        size_t adSegCount = yuitag_adv_build(dev, adSegs, 4,
+                                             adStorage, sizeof(adStorage));
+        advLen = serialize_segs_ltv(adSegs, adSegCount, advData, sizeof(advData));
+
+        // 扫描响应包: 完整设备名称
+        uint8_t sdStorage[DEVICE_NAME_MAX_LEN + 1];
+        yuitag_adv_seg_t sdSegs[1];
+        size_t sdSegCount = yuitag_adv_build_scan_rsp(dev, sdSegs, 1,
+                                                       sdStorage, sizeof(sdStorage));
+        scanLen = (sdSegCount == 1) ? serialize_segs_ltv(sdSegs, 1, scanResp, sizeof(scanResp)) : 0;
+
         if (advLen == 0 || scanLen == 0) {
             platform_log("[ADV] Failed to build adv data");
             return;
@@ -483,7 +427,7 @@ void yuitag_ble_on_event(sl_bt_msg_t *evt, YuiTagDevice *dev)
         // 开机提示音在首次电量采样后播放，避免蜂鸣器瞬态拉低采样电压；
         // 若连续快速上电触发了出厂复位，则跳过开机提示音，避免覆盖复位提示音
         if (!app_is_factory_reset_triggered()) {
-            platform_startup_beep();
+            yuitag_beep_startup();
         }
 
         yuitag_ble_update_dis_values(dev);

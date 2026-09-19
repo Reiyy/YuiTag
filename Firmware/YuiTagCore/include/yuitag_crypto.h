@@ -21,6 +21,8 @@ void yuitag_crypto_compute_uid(const uint8_t mac[6], uint8_t uidOut[UID_LEN]);
 void yuitag_crypto_get_short_uid(const uint8_t uid[UID_LEN], uint8_t shortUid[SHORT_UID_LEN]);
 void yuitag_crypto_make_device_name(const uint8_t shortUid[SHORT_UID_LEN], char *buf, size_t bufSize);
 void yuitag_crypto_uid_to_hex_str(const uint8_t uid[UID_LEN], char *buf, size_t bufSize);
+// 由 MAC 构造 8 字节 Bluetooth System ID (EUI-64: 前3字节MAC逆序 + 0xFF,0xFE + 后3字节MAC逆序)
+void yuitag_crypto_make_system_id(const uint8_t mac[6], uint8_t out[8]);
 
 // ---- CRC-8 校验 (多项式 0x07) ----
 uint8_t yuitag_crypto_crc8(const uint8_t *data, size_t len);
@@ -66,6 +68,7 @@ bool yuitag_crypto_findmy_compute_public_x(const uint8_t privateKey[FINDMY_KEY_L
 #define crypto_get_short_uid             yuitag_crypto_get_short_uid
 #define crypto_make_device_name          yuitag_crypto_make_device_name
 #define crypto_uid_to_hex_str            yuitag_crypto_uid_to_hex_str
+#define crypto_make_system_id            yuitag_crypto_make_system_id
 #define crypto_crc8                      yuitag_crypto_crc8
 #define crypto_set_aes_key               yuitag_crypto_set_aes_key
 #define crypto_has_aes_key               yuitag_crypto_has_aes_key

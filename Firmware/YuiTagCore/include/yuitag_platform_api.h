@@ -43,10 +43,6 @@ void platform_storage_save_string(uint32_t key, const char *str);
 void platform_storage_remove(uint32_t key);
 void platform_storage_clear_all(void);
 
-// ---- 提示音 ----
-void platform_startup_beep(void);
-void platform_factory_reset_beep(void);
-
 // ---- 加密后端 (由各平台的 crypto_platform.c 实现) ----
 void platform_crypto_init(void);
 bool platform_crypto_sha256(const uint8_t *in, size_t len, uint8_t out[32]);

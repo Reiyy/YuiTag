@@ -10,6 +10,7 @@
 #include "yuitag_platform.h"
 #include "yuitag_crypto.h"
 #include "yuitag_device.h"
+#include "yuitag_buzzer_types.h"
 #include "yuitag_ble.h"
 #include "app.h"
 
@@ -35,7 +36,7 @@ static void bt_ready(int err)
 
     // 3. 正常开机蜂鸣提示音 (若触发出厂复位则跳过，避免覆盖复位提示音)
     if (!resetTriggered) {
-        platform_startup_beep();
+        yuitag_beep_startup();
     }
 
     // 4. 同步设备名称至 BLE 协议栈及 DIS 信息服务

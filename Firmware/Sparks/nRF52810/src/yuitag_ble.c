@@ -5,6 +5,7 @@
 #include "yuitag_ble.h"
 #include "yuitag_crypto.h"
 #include "yuitag_platform.h"
+#include "yuitag_adv.h"
 #include "app.h"
 
 #include <zephyr/bluetooth/bluetooth.h>
@@ -317,7 +318,7 @@ static ssize_t read_serial(struct bt_conn *conn,
                              g_dev->serial, strlen(g_dev->serial));
 }
 
-// 读取系统 ID 特征 (由 MAC 转换为 EUI-64 格式)
+// 读取系统 ID 特征 (由 MAC 转换为 EUI-64 格式, 构造逻辑在 YuiTagCore)
 static ssize_t read_system_id(struct bt_conn *conn,
                               const struct bt_gatt_attr *attr,
                               void *buf, uint16_t len, uint16_t offset)
@@ -326,80 +327,48 @@ static ssize_t read_system_id(struct bt_conn *conn,
     uint8_t sid[8];
 
     platform_get_mac(mac);
-    sid[0] = mac[5];
-    sid[1] = mac[4];
-    sid[2] = mac[3];
-    sid[3] = 0xFF;
-    sid[4] = 0xFE;
-    sid[5] = mac[2];
-    sid[6] = mac[1];
-    sid[7] = mac[0];
+    yuitag_crypto_make_system_id(mac, sid);
 
     return bt_gatt_attr_read(conn, attr, buf, len, offset, sid, sizeof(sid));
 }
 
-// 组装广播包与扫描响应包并启动广播
+// 组装广播包与扫描响应包并启动广播 (字段布局由 YuiTagCore yuitag_adv 统一构造)
 static void start_advertising(YuiTagDevice *dev, bool connectable)
 {
-    // 厂商自定义数据 (Company ID + 协议标识 + 短 UID + 未绑定标志)
-    uint8_t mfrBuf[8];
-    size_t mfrLen = 0;
-    if (dev->isBound) {
-        mfrBuf[0] = YUITAG_COMPANY_ID & 0xFF;
-        mfrBuf[1] = (YUITAG_COMPANY_ID >> 8) & 0xFF;
-        mfrBuf[2] = 0x01;
-        mfrBuf[3] = dev->shortUid[0];
-        mfrBuf[4] = dev->shortUid[1];
-        mfrLen = 5;
-    } else {
-        mfrBuf[0] = YUITAG_COMPANY_ID & 0xFF;
-        mfrBuf[1] = (YUITAG_COMPANY_ID >> 8) & 0xFF;
-        mfrBuf[2] = 0x01;
-        mfrBuf[3] = dev->shortUid[0];
-        mfrBuf[4] = dev->shortUid[1];
-        mfrBuf[5] = 0x00; // 未绑定状态标志
-        mfrLen = 6;
+    // 主广播包字段段 (flags + 厂商数据 + [绑定后]电量 + [debug]诊断)
+    uint8_t adStorage[32];
+    yuitag_adv_seg_t adSegs[4];
+    size_t adSegCount = yuitag_adv_build(dev, adSegs, ARRAY_SIZE(adSegs),
+                                         adStorage, sizeof(adStorage));
+    if (adSegCount == 0) {
+        platform_log("[ADV] Failed to build adv data");
+        g_adv_failed = true;
+        return;
     }
 
-    // 16位服务数据 (标准电池电量服务 0x180F)
-    uint8_t battData[3];
-    battData[0] = UUID16_BATT & 0xFF;
-    battData[1] = (UUID16_BATT >> 8) & 0xFF;
-    battData[2] = dev->batteryLevel;
-
-    uint8_t flags = 0x06; // 限制通用发现模式 + 不支持经典蓝牙
-    struct bt_data ad[3];
+    struct bt_data ad[4];
     size_t adLen = 0;
-
-    ad[adLen].type = BT_DATA_FLAGS;
-    ad[adLen].data_len = sizeof(flags);
-    ad[adLen].data = &flags;
-    adLen++;
-
-    ad[adLen].type = BT_DATA_MANUFACTURER_DATA;
-    ad[adLen].data_len = (uint8_t)mfrLen;
-    ad[adLen].data = mfrBuf;
-    adLen++;
-
-    // 已绑定状态下在广播中携带电量信息
-    if (dev->isBound) {
-        ad[adLen].type = BT_DATA_SVC_DATA16;
-        ad[adLen].data_len = sizeof(battData);
-        ad[adLen].data = battData;
+    for (size_t i = 0; i < adSegCount && adLen < ARRAY_SIZE(ad); i++) {
+        ad[adLen].type = adSegs[i].type;
+        ad[adLen].data_len = adSegs[i].len;
+        ad[adLen].data = adSegs[i].data;
         adLen++;
     }
 
     // 扫描响应包中包含完整设备名称
-    uint8_t nameBuf[DEVICE_NAME_MAX_LEN + 1];
-    size_t nameLen = strlen(dev->deviceName);
-    if (nameLen > DEVICE_NAME_MAX_LEN) {
-        nameLen = DEVICE_NAME_MAX_LEN;
-    }
-    memcpy(nameBuf, dev->deviceName, nameLen);
+    uint8_t sdStorage[DEVICE_NAME_MAX_LEN + 1];
+    yuitag_adv_seg_t sdSegs[1];
+    size_t sdSegCount = yuitag_adv_build_scan_rsp(dev, sdSegs, ARRAY_SIZE(sdSegs),
+                                                  sdStorage, sizeof(sdStorage));
 
-    struct bt_data sd[] = {
-        BT_DATA(BT_DATA_NAME_COMPLETE, nameBuf, nameLen),
-    };
+    struct bt_data sd[1];
+    size_t sdLen = 0;
+    if (sdSegCount == 1) {
+        sd[0].type = sdSegs[0].type;
+        sd[0].data_len = sdSegs[0].len;
+        sd[0].data = sdSegs[0].data;
+        sdLen = 1;
+    }
 
     // 毫秒折算为 0.625ms 广播单位
     uint32_t units = ((uint32_t)dev->advInterval * 8U) / 5U;
@@ -407,7 +376,7 @@ static void start_advertising(YuiTagDevice *dev, bool connectable)
     opt |= connectable ? BT_LE_ADV_OPT_CONN : BT_LE_ADV_OPT_SCANNABLE;
     struct bt_le_adv_param param = BT_LE_ADV_PARAM_INIT(opt, units, units, NULL);
 
-    int err = bt_le_adv_start(&param, ad, adLen, sd, ARRAY_SIZE(sd));
+    int err = bt_le_adv_start(&param, ad, adLen, sd, sdLen);
     if (err) {
         platform_log("[ADV] Start failed: %d", err);
         g_adv_failed = true;

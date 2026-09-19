@@ -11,6 +11,7 @@
 #include "yuitag_buzzer_types.h"
 #include "yuitag_crypto.h"
 #include "yuitag_device.h"
+#include "yuitag_adv.h"
 
 #ifndef IS_SPARKS
 #include "yuitag_findmy.h"

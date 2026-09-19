@@ -71,6 +71,18 @@ void yuitag_crypto_uid_to_hex_str(const uint8_t uid[UID_LEN], char *buf, size_t 
     }
 }
 
+void yuitag_crypto_make_system_id(const uint8_t mac[6], uint8_t out[8])
+{
+    out[0] = mac[5];
+    out[1] = mac[4];
+    out[2] = mac[3];
+    out[3] = 0xFF;
+    out[4] = 0xFE;
+    out[5] = mac[2];
+    out[6] = mac[1];
+    out[7] = mac[0];
+}
+
 // ============================================================
 // CRC-8 (多项式 0x07, 初始值 0x00)
 // ============================================================

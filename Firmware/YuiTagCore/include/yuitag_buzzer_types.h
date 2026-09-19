@@ -34,4 +34,8 @@ void buzzer_play_melody(const buzzer_note_t *notes, uint16_t count,
 void buzzer_stop_melody(void);
 bool buzzer_melody_is_playing(void);
 
+// ---- 通用系统提示音 (由 YuiTagCore yuitag_beep.c 实现, 各平台共用) ----
+void yuitag_beep_startup(void);        // 开机双短滴提示音
+void yuitag_beep_factory_reset(void);  // 恢复出厂设置连击提示音
+
 #endif // YUITAG_BUZZER_TYPES_H

@@ -6,6 +6,7 @@
 
 #include "yuitag_config.h"
 #include "yuitag_platform_api.h"
+#include "yuitag_adv.h"
 
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/addr.h>
@@ -20,33 +21,6 @@
 
 static struct bt_le_ext_adv *s_adv = NULL;
 
-static void build_findmy_adv_data(const uint8_t key[FINDMY_KEY_LEN],
-                                  uint8_t status_byte,
-                                  uint8_t buf[31])
-{
-    memset(buf, 0, 31);
-    buf[0] = 0x1E;
-    buf[1] = 0xFF;
-    buf[2] = 0x4C;
-    buf[3] = 0x00;
-    buf[4] = 0x12;
-    buf[5] = 0x19;
-    buf[6] = status_byte;
-    memcpy(&buf[7], &key[6], 22);
-    buf[29] = key[0] >> 6;
-}
-
-static void addr_from_key(const uint8_t key[FINDMY_KEY_LEN], bt_addr_le_t *addr)
-{
-    addr->type = BT_ADDR_LE_RANDOM;
-    addr->a.val[0] = key[5];
-    addr->a.val[1] = key[4];
-    addr->a.val[2] = key[3];
-    addr->a.val[3] = key[2];
-    addr->a.val[4] = key[1];
-    addr->a.val[5] = key[0] | 0xC0;
-}
-
 static bool ensure_identity(const uint8_t key[FINDMY_KEY_LEN])
 {
     bt_addr_le_t addrs[CONFIG_BT_ID_MAX];
@@ -58,7 +32,8 @@ static bool ensure_identity(const uint8_t key[FINDMY_KEY_LEN])
     }
 
     bt_addr_le_t addr;
-    addr_from_key(key, &addr);
+    addr.type = BT_ADDR_LE_RANDOM;
+    yuitag_findmy_key_to_addr(key, addr.a.val);
     int err = bt_id_create(&addr, NULL);
     if (err < 0 && err != -EALREADY) {
         platform_log("[FINDMY] id_create failed: %d", err);
@@ -82,7 +57,8 @@ bool platform_findmy_adv_start(const uint8_t key[28], uint8_t status_byte)
     }
 
     bt_addr_le_t addr;
-    addr_from_key(key, &addr);
+    addr.type = BT_ADDR_LE_RANDOM;
+    yuitag_findmy_key_to_addr(key, addr.a.val);
     err = bt_id_reset(FINDMY_ID, &addr, NULL);
     if (err < 0 && err != -EALREADY) {
         platform_log("[FINDMY] id_reset failed: %d", err);
@@ -101,7 +77,7 @@ bool platform_findmy_adv_start(const uint8_t key[28], uint8_t status_byte)
     }
 
     uint8_t raw[31];
-    build_findmy_adv_data(key, status_byte, raw);
+    yuitag_findmy_build_adv_data(key, status_byte, raw);
     struct bt_data ad[] = {
         BT_DATA(BT_DATA_MANUFACTURER_DATA, &raw[2], 29),
     };
@@ -128,7 +104,7 @@ bool platform_findmy_adv_update_data(const uint8_t key[28], uint8_t status_byte)
     }
 
     uint8_t raw[31];
-    build_findmy_adv_data(key, status_byte, raw);
+    yuitag_findmy_build_adv_data(key, status_byte, raw);
     struct bt_data ad[] = {
         BT_DATA(BT_DATA_MANUFACTURER_DATA, &raw[2], 29),
     };

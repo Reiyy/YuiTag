@@ -111,7 +111,7 @@ bool yuitag_device_power_cycle_check(YuiTagDevice *dev)
     if (pwrCnt >= POWER_CYCLE_RESET_COUNT) {
         platform_log("[RESET] count=%d -> FACTORY RESET", pwrCnt);
         yuitag_device_clear_binding(dev);
-        platform_factory_reset_beep();
+        yuitag_beep_factory_reset();
         pwrCnt = 0;
         platform_storage_save_bytes(NVM3_KEY_PWR_CYCLE_CNT, (uint8_t *)&pwrCnt, sizeof(pwrCnt));
         dev->powerCycleStartMs = 0;

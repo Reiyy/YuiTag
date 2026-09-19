@@ -22,4 +22,6 @@ target_sources(app PRIVATE
     ${YUITAG_CORE_DIR}/src/yuitag_device.c
     ${YUITAG_CORE_DIR}/src/yuitag_crypto_common.c
     ${YUITAG_CORE_DIR}/src/yuitag_findmy_logic.c
+    ${YUITAG_CORE_DIR}/src/yuitag_adv.c
+    ${YUITAG_CORE_DIR}/src/yuitag_beep.c
 )

@@ -19,6 +19,8 @@ target_sources(app PRIVATE
     src/yuitag_ble.c
     ${YUITAG_CORE_DIR}/src/yuitag_device.c
     ${YUITAG_CORE_DIR}/src/yuitag_crypto_common.c
+    ${YUITAG_CORE_DIR}/src/yuitag_adv.c
+    ${YUITAG_CORE_DIR}/src/yuitag_beep.c
     ${YUITAG_CORE_DIR}/lib/tiny_aes.c
     ${YUITAG_CORE_DIR}/lib/sha256.c
 )

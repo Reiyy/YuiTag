@@ -6,37 +6,12 @@
 #include "yuitag_config.h"
 #include "yuitag_platform_api.h"
 #include "yuitag_findmy.h"
+#include "yuitag_adv.h"
 
 #include "sl_bt_api.h"
 #include <string.h>
 
 static uint8_t s_adv_handle = 0xFF;
-
-static void build_findmy_adv_data(const uint8_t key[FINDMY_KEY_LEN],
-                                  uint8_t status_byte,
-                                  uint8_t buf[31])
-{
-    memset(buf, 0, 31);
-    buf[0] = 0x1E;                          // 长度 (30 字节)
-    buf[1] = 0xFF;                          // 广播类型：厂商自定义数据
-    buf[2] = 0x4C;                          // Apple 厂商 ID (0x004C) 低字节
-    buf[3] = 0x00;                          // Apple 厂商 ID 高字节
-    buf[4] = 0x12;                          // 子类型：Offline Finding
-    buf[5] = 0x19;                          // 数据长度 (25 字节)
-    buf[6] = status_byte;                   // 状态字节 [7:6]电量 [5:0]滚动计数器
-    memcpy(&buf[7], &key[6], 22);           // 公钥 X 坐标后 22 字节
-    buf[29] = key[0] >> 6;                  // 公钥首字节高 2 位作为 hint
-}
-
-static void set_addr_from_key(const uint8_t key[FINDMY_KEY_LEN], bd_addr *addr)
-{
-    addr->addr[5] = key[0] | 0xC0;
-    addr->addr[4] = key[1];
-    addr->addr[3] = key[2];
-    addr->addr[2] = key[3];
-    addr->addr[1] = key[4];
-    addr->addr[0] = key[5];
-}
 
 bool platform_findmy_adv_start(const uint8_t key[28], uint8_t status_byte)
 {
@@ -66,7 +41,7 @@ bool platform_findmy_adv_start(const uint8_t key[28], uint8_t status_byte)
     }
 
     bd_addr addr;
-    set_addr_from_key(key, &addr);
+    yuitag_findmy_key_to_addr(key, addr.addr);
     sc = sl_bt_advertiser_set_random_address(s_adv_handle,
                                               sl_bt_gap_static_address,
                                               addr, NULL);
@@ -76,7 +51,7 @@ bool platform_findmy_adv_start(const uint8_t key[28], uint8_t status_byte)
     }
 
     uint8_t advData[31];
-    build_findmy_adv_data(key, status_byte, advData);
+    yuitag_findmy_build_adv_data(key, status_byte, advData);
     sc = sl_bt_legacy_advertiser_set_data(s_adv_handle,
                                            sl_bt_advertiser_advertising_data_packet,
                                            sizeof(advData), advData);
@@ -102,7 +77,7 @@ bool platform_findmy_adv_update_data(const uint8_t key[28], uint8_t status_byte)
     }
 
     uint8_t advData[31];
-    build_findmy_adv_data(key, status_byte, advData);
+    yuitag_findmy_build_adv_data(key, status_byte, advData);
     sl_status_t sc = sl_bt_legacy_advertiser_set_data(s_adv_handle,
                                                       sl_bt_advertiser_advertising_data_packet,
                                                       sizeof(advData), advData);
