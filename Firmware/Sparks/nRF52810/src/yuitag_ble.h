@@ -7,8 +7,8 @@
 // 功能: 广播控制、GATT 核心服务与特征、连接参数协商、通知推送
 // ============================================================
 
-#include "yuitag_device.h"
 #include <zephyr/bluetooth/bluetooth.h>
+#include "yuitag_device.h"
 #include <stdbool.h>
 
 // 初始化 BLE 驱动层上下文及连接参数更新工作项 (需在 bt_enable 前调用)

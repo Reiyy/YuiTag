@@ -90,33 +90,5 @@ bool    yuitag_device_findmy_period_config(const uint8_t *decryptedPayload, size
 uint8_t yuitag_device_findmy_handle_time_sync(const uint8_t *plain, size_t len);
 #endif
 
-// ---- 兼容性别名宏 ----
-#ifndef YUITAG_NO_COMPAT_MACROS
-#define device_init                       yuitag_device_init
-#define device_power_cycle_check          yuitag_device_power_cycle_check
-#define device_tick                       yuitag_device_tick
-#define device_check_heartbeat_timeout    yuitag_device_check_heartbeat_timeout
-#define device_on_connected               yuitag_device_on_connected
-#define device_on_disconnected            yuitag_device_on_disconnected
-#define device_process_events             yuitag_device_process_events
-#define device_decrypt_validate           yuitag_device_decrypt_validate
-#define device_dispatch_cmd               yuitag_device_dispatch_cmd
-#ifdef IS_SPARKS
-#define device_bind_generate_key          yuitag_device_bind_generate_key
-#else
-#define device_bind_process_peer_key      yuitag_device_bind_process_peer_key
-#endif
-#define device_bind_verify                yuitag_device_bind_verify
-#define device_clear_binding              yuitag_device_clear_binding
-#define device_abort_bind                 yuitag_device_abort_bind
-#define device_persist_bind               yuitag_device_persist_bind
-#define device_persist_params             yuitag_device_persist_params
-#define device_param_read                 yuitag_device_param_read
-#define device_param_write                yuitag_device_param_write
-#ifndef IS_SPARKS
-#define device_findmy_period_config       yuitag_device_findmy_period_config
-#define device_findmy_handle_time_sync    yuitag_device_findmy_handle_time_sync
-#endif
-#endif
 
 #endif // YUITAG_DEVICE_H

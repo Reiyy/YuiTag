@@ -60,34 +60,5 @@ bool yuitag_crypto_findmy_compute_public_x(const uint8_t privateKey[FINDMY_KEY_L
                                             uint8_t publicXOut[FINDMY_KEY_LEN]);
 #endif
 
-// ---- 兼容性别名宏 ----
-#ifndef YUITAG_NO_COMPAT_MACROS
-#define crypto_init                      yuitag_crypto_init
-#define crypto_deinit                    yuitag_crypto_deinit
-#define crypto_compute_uid               yuitag_crypto_compute_uid
-#define crypto_get_short_uid             yuitag_crypto_get_short_uid
-#define crypto_make_device_name          yuitag_crypto_make_device_name
-#define crypto_uid_to_hex_str            yuitag_crypto_uid_to_hex_str
-#define crypto_make_system_id            yuitag_crypto_make_system_id
-#define crypto_crc8                      yuitag_crypto_crc8
-#define crypto_set_aes_key               yuitag_crypto_set_aes_key
-#define crypto_has_aes_key               yuitag_crypto_has_aes_key
-#define crypto_clear_aes_key             yuitag_crypto_clear_aes_key
-#define crypto_get_aes_key               yuitag_crypto_get_aes_key
-#define crypto_aes_ctr                   yuitag_crypto_aes_ctr
-#ifdef IS_SPARKS
-#define crypto_generate_aes_key          yuitag_crypto_generate_aes_key
-#endif
-#ifndef IS_SPARKS
-#define crypto_ecdh_generate_keypair     yuitag_crypto_ecdh_generate_keypair
-#define crypto_ecdh_compute_shared       yuitag_crypto_ecdh_compute_shared
-#define crypto_ecdh_export_pubkey        yuitag_crypto_ecdh_export_pubkey
-#define crypto_ecdh_cleanup              yuitag_crypto_ecdh_cleanup
-#define crypto_ecdh_ready                yuitag_crypto_ecdh_ready
-#define crypto_derive_findmy_seed        yuitag_crypto_derive_findmy_seed
-#define crypto_derive_findmy_private_key yuitag_crypto_derive_findmy_private_key
-#define crypto_findmy_compute_public_x   yuitag_crypto_findmy_compute_public_x
-#endif
-#endif
 
 #endif // YUITAG_CRYPTO_H

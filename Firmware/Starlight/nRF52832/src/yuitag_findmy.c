@@ -6,6 +6,7 @@
 
 #include "yuitag_config.h"
 #include "yuitag_platform_api.h"
+#include "yuitag_findmy.h"
 #include "yuitag_adv.h"
 
 #include <zephyr/bluetooth/bluetooth.h>

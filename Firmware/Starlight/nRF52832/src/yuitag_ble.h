@@ -5,8 +5,8 @@
 // 处理: BLE 广播、GATT 服务与特征、通知推送、连接参数协商
 // ============================================================
 
-#include "yuitag_device.h"
 #include <zephyr/bluetooth/bluetooth.h>
+#include "yuitag_device.h"
 #include <stdbool.h>
 
 // 初始化 GATT 服务数据库与连接回调 (需在 bt_enable 之前调用)
