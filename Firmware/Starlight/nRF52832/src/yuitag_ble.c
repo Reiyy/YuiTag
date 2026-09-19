@@ -235,7 +235,7 @@ static ssize_t write_cmd(struct bt_conn *conn, const struct bt_gatt_attr *attr,
             g_dev->pendingAdvRefresh = true;
             yuitag_ble_update_dis_values(g_dev);
             g_conn_param_updated = false;
-            k_work_reschedule(&s_conn_param_work, K_MSEC(2500));
+            k_work_reschedule(&s_conn_param_work, K_MSEC(15000));
             app_proceed();
         } else {
             uint8_t resp = BIND_VERIFY_FAIL;
@@ -540,9 +540,9 @@ static void connected(struct bt_conn *conn, uint8_t err)
 
     yuitag_device_on_connected(g_dev);
 
-    /* 已绑定状态下，延时 2.5 秒申请更新连接参数 */
+    /* 已绑定状态下，延时 15.0 秒申请温和降速连接参数 (预留充裕窗口给服务发现与 OTA 授权，授权后不降速) */
     if (g_dev && g_dev->isBound) {
-        k_work_reschedule(&s_conn_param_work, K_MSEC(2500));
+        k_work_reschedule(&s_conn_param_work, K_MSEC(15000));
     }
 
     /* 连接建立后重新启动不可连接广播 (供手机端跟踪 RSSI)；转交主循环处理以保证安全 */
@@ -604,23 +604,44 @@ void yuitag_ble_try_conn_param_update(YuiTagDevice *dev)
         return;
     }
 
-    /* 符合 Apple 配件设计指南规范:
-     * 1. 间隔 1000ms (800 * 1.25ms)
-     * 2. 从机延迟 1 -> 等效有效间隔 2000ms (<= 2.0s)
-     * 3. 监控超时 6000ms (600 * 10ms <= 6.0s 且 > 2.0s * 2)
+    /* 平衡功耗与响应的温和降速参数:
+     * 1. 间隔 60ms ~ 90ms (48 ~ 72 * 1.25ms)，保证双向低延迟与高响应度
+     * 2. 从机延迟 0 (禁止跳过事件，彻底杜绝超时与交互卡顿)
+     * 3. 监控超时 4000ms (400 * 10ms)
      */
     struct bt_le_conn_param param = {
-        .interval_min = 800,
-        .interval_max = 800,
-        .latency = 1,
-        .timeout = 600,
+        .interval_min = 48,  /* 60 ms */
+        .interval_max = 72,  /* 90 ms */
+        .latency = 0,
+        .timeout = 400,      /* 4000 ms */
     };
     int err = bt_conn_le_param_update(g_conn, &param);
     if (err == 0) {
         g_conn_param_updated = true;
-        platform_log("[CONN] Apple-compliant param update requested: 1000ms, lat=1, to=6s");
+        platform_log("[CONN] Balanced param update requested: 60-90ms, lat=0, to=4s");
     } else {
         platform_log("[CONN] Param update failed: %d", err);
+    }
+}
+
+void yuitag_ble_set_fast_conn_params(void)
+{
+    if (!g_connected || !g_conn) {
+        return;
+    }
+    /* OTA 高速传输参数: 15ms~30ms, 延迟 0, 超时 4s */
+    struct bt_le_conn_param param = {
+        .interval_min = 12,  /* 15 ms (12 * 1.25ms) */
+        .interval_max = 24,  /* 30 ms (24 * 1.25ms) */
+        .latency = 0,
+        .timeout = 400,      /* 4000 ms */
+    };
+    int err = bt_conn_le_param_update(g_conn, &param);
+    if (err == 0) {
+        g_conn_param_updated = true;
+        platform_log("[CONN] Fast param update requested for OTA: 15-30ms, lat=0");
+    } else {
+        platform_log("[CONN] Fast param update failed: %d", err);
     }
 }
 

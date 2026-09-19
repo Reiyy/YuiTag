@@ -12,21 +12,38 @@
 
 #include <zephyr/kernel.h>
 
-#if defined(CONFIG_MCUMGR_TRANSPORT_BT_DYNAMIC_SVC_REGISTRATION)
-#include <zephyr/mgmt/mcumgr/transport/smp_bt.h>
+#if defined(CONFIG_MCUMGR_SMP_COMMAND_STATUS_HOOKS)
+#include <zephyr/mgmt/mcumgr/mgmt/callbacks.h>
 #endif
 
 static YuiTagDevice *g_dev;
 static bool g_initialized = false;
 static bool g_ota_authorized = false;
-static bool g_smp_registered = false;
 
 static struct k_work s_process_work;
 static struct k_timer s_periodic_timer;
 
-#if defined(CONFIG_MCUMGR_TRANSPORT_BT_DYNAMIC_SVC_REGISTRATION)
-static struct k_work s_ota_work;
-static void ota_work_handler(struct k_work *work);
+#if defined(CONFIG_MCUMGR_SMP_COMMAND_STATUS_HOOKS)
+/* ------------------------------------------------------------
+ * MCUmgr SMP 指令接收安全拦截回调 (仅在 0x6F 授权后放行)
+ * ------------------------------------------------------------ */
+static enum mgmt_cb_return smp_cmd_recv_callback(uint32_t event, enum mgmt_cb_return prev_status,
+                                                  int32_t *rc, uint16_t *group, bool *abort_more,
+                                                  void *data, size_t data_size)
+{
+    (void)event; (void)prev_status; (void)group; (void)abort_more; (void)data; (void)data_size;
+    if (!app_is_ota_authorized()) {
+        platform_log("[OTA-SEC] SMP command rejected: unauthorized");
+        *rc = 2; /* MGMT_ERR_EACCESS (Access denied) */
+        return MGMT_CB_ERROR_RC;
+    }
+    return MGMT_CB_OK;
+}
+
+static struct mgmt_callback s_smp_cb = {
+    .callback = smp_cmd_recv_callback,
+    .event_id = MGMT_EVT_OP_CMD_RECV,
+};
 #endif
 
 static void process_action_handler(struct k_work *work);
@@ -63,8 +80,8 @@ void app_init(YuiTagDevice *dev)
                   K_SECONDS(PERIODIC_CHECK_INTERVAL_MS / 1000),
                   K_SECONDS(PERIODIC_CHECK_INTERVAL_MS / 1000));
 
-#if defined(CONFIG_MCUMGR_TRANSPORT_BT_DYNAMIC_SVC_REGISTRATION)
-    k_work_init(&s_ota_work, ota_work_handler);
+#if defined(CONFIG_MCUMGR_SMP_COMMAND_STATUS_HOOKS)
+    mgmt_callback_register(&s_smp_cb);
 #endif
 }
 
@@ -80,43 +97,19 @@ void app_mark_initialized(void)
 }
 
 /* ------------------------------------------------------------
- * OTA 授权与 SMP 动态服务注册 (延时执行)
+ * OTA 授权状态管理
  * ------------------------------------------------------------ */
-#if defined(CONFIG_MCUMGR_TRANSPORT_BT_DYNAMIC_SVC_REGISTRATION)
-static void ota_work_handler(struct k_work *work)
-{
-    (void)work;
-
-    if (g_ota_authorized && !g_smp_registered) {
-        if (smp_bt_register() == 0) {
-            g_smp_registered = true;
-            platform_log("[OTA] SMP service registered");
-        } else {
-            platform_log("[OTA] SMP service register failed");
-        }
-    } else if (!g_ota_authorized && g_smp_registered) {
-        smp_bt_unregister();
-        g_smp_registered = false;
-        platform_log("[OTA] SMP service unregistered");
-    }
-}
-#endif
-
 void app_ota_authorize(void)
 {
     g_ota_authorized = true;
     platform_log("[OTA] Authorized");
-#if defined(CONFIG_MCUMGR_TRANSPORT_BT_DYNAMIC_SVC_REGISTRATION)
-    k_work_submit(&s_ota_work);
-#endif
+    yuitag_ble_set_fast_conn_params();
 }
 
 void app_ota_deauthorize(void)
 {
     g_ota_authorized = false;
-#if defined(CONFIG_MCUMGR_TRANSPORT_BT_DYNAMIC_SVC_REGISTRATION)
-    k_work_submit(&s_ota_work);
-#endif
+    platform_log("[OTA] Deauthorized");
 }
 
 bool app_is_ota_authorized(void)

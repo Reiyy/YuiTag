@@ -26,4 +26,7 @@ void yuitag_ble_set_device_name(const char *name);
 // 尝试向主机申请更新连接参数 (符合 Apple 规范)
 void yuitag_ble_try_conn_param_update(YuiTagDevice *dev);
 
+// 主动向主机申请快速连接参数 (15ms 间隔，从机延迟 0，供 OTA 高速传输)
+void yuitag_ble_set_fast_conn_params(void);
+
 #endif // YUITAG_BLE_H

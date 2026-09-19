@@ -173,7 +173,7 @@ static ssize_t write_cmd(struct bt_conn *conn, const struct bt_gatt_attr *attr,
             g_dev->pendingAdvRefresh = true;
             yuitag_ble_update_dis_values(g_dev);
             g_conn_param_updated = false;
-            k_work_reschedule(&s_conn_param_work, K_MSEC(2500));
+            k_work_reschedule(&s_conn_param_work, K_MSEC(15000));
             app_proceed();
         } else {
             uint8_t resp = BIND_VERIFY_FAIL;
@@ -443,9 +443,9 @@ static void connected(struct bt_conn *conn, uint8_t err)
 
     yuitag_device_on_connected(g_dev);
 
-    // 已绑定设备在连接建立 2.5 秒后尝试更新连接参数 (避开初始阶段 GATT 服务发现的高峰)
+    // 已绑定设备在连接建立 15.0 秒后尝试温和更新连接参数 (预留充裕窗口给服务发现与交互)
     if (g_dev && g_dev->isBound) {
-        k_work_reschedule(&s_conn_param_work, K_MSEC(2500));
+        k_work_reschedule(&s_conn_param_work, K_MSEC(15000));
     }
 
     g_dev->pendingAdvRefresh = true;
@@ -487,7 +487,7 @@ static void conn_param_work_handler(struct k_work *work)
     }
 }
 
-// 请求优化连接参数 (严格遵循 Apple iOS 配件设计准则: 间隔*延迟<=2s, 超时<=6s)
+// 平衡功耗与响应的温和降速参数 (60ms~90ms, latency=0, timeout=4s)
 void yuitag_ble_try_conn_param_update(YuiTagDevice *dev)
 {
     if (!g_connected || g_conn_param_updated || !g_conn) {
@@ -500,17 +500,16 @@ void yuitag_ble_try_conn_param_update(YuiTagDevice *dev)
         return;
     }
 
-    // 采用: 间隔 1000ms, 从机延迟 1 (有效通信周期 2000ms), 监控超时 6000ms
     struct bt_le_conn_param param = {
-        .interval_min = 800,   // 1000 ms (800 * 1.25ms)
-        .interval_max = 800,   // 1000 ms (800 * 1.25ms)
-        .latency = 1,          // 1 slave latency -> 有效间隔 2000 ms (2.0s)
-        .timeout = 600,        // 6000 ms (600 * 10ms = 6.0s)
+        .interval_min = 48,    // 60 ms (48 * 1.25ms)
+        .interval_max = 72,    // 90 ms (72 * 1.25ms)
+        .latency = 0,          // 0 latency -> 确保双向低延迟响应
+        .timeout = 400,        // 4000 ms (400 * 10ms = 4.0s)
     };
     int err = bt_conn_le_param_update(g_conn, &param);
     if (err == 0) {
         g_conn_param_updated = true;
-        platform_log("[CONN] Apple-compliant param update requested: 1000ms, lat=1, to=6s");
+        platform_log("[CONN] Balanced param update requested: 60-90ms, lat=0, to=4s");
     } else {
         platform_log("[CONN] Param update failed: %d", err);
     }
