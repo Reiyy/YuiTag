@@ -109,6 +109,8 @@ object Cbor {
 
     private class Reader(val data: ByteArray) {
         var pos = 0
+        fun hasRemaining(): Boolean = pos < data.size
+        fun peekByte(): Int = if (pos < data.size) (data[pos].toInt() and 0xFF) else -1
         fun readByte(): Int = (data[pos++].toInt() and 0xFF)
         fun readBytes(n: Int): ByteArray {
             val out = data.copyOfRange(pos, pos + n)
@@ -127,16 +129,44 @@ object Cbor {
             2 -> CborValue.Bytes(r.readBytes(readLength(r, ai).toInt()))
             3 -> CborValue.Text(String(r.readBytes(readLength(r, ai).toInt()), Charsets.UTF_8))
             4 -> {
-                val n = readLength(r, ai).toInt()
-                CborValue.ArrayVal((0 until n).map { decodeValue(r) })
+                if (ai == 31) {
+                    // RFC 8949 不定长 Array (0x9F ... 0xFF)
+                    val items = mutableListOf<CborValue>()
+                    while (r.hasRemaining() && r.peekByte() != 0xFF) {
+                        items.add(decodeValue(r))
+                    }
+                    if (r.hasRemaining() && r.peekByte() == 0xFF) {
+                        r.readByte() // 消耗 break (0xFF)
+                    }
+                    CborValue.ArrayVal(items)
+                } else {
+                    val n = readLength(r, ai).toInt()
+                    CborValue.ArrayVal((0 until n).map { decodeValue(r) })
+                }
             }
             5 -> {
-                val n = readLength(r, ai).toInt()
                 val m = LinkedHashMap<String, CborValue>()
-                for (i in 0 until n) {
-                    val k = decodeValue(r)
-                    val v = decodeValue(r)
-                    m[(k as? CborValue.Text)?.value ?: k.toString()] = v
+                if (ai == 31) {
+                    // RFC 8949 不定长 Map (0xBF ... 0xFF)，Zephyr zcbor 默认编码格式
+                    while (r.hasRemaining() && r.peekByte() != 0xFF) {
+                        val k = decodeValue(r)
+                        if (r.hasRemaining() && r.peekByte() == 0xFF) {
+                            r.readByte()
+                            break
+                        }
+                        val v = decodeValue(r)
+                        m[(k as? CborValue.Text)?.value ?: k.toString()] = v
+                    }
+                    if (r.hasRemaining() && r.peekByte() == 0xFF) {
+                        r.readByte() // 消耗 break (0xFF)
+                    }
+                } else {
+                    val n = readLength(r, ai).toInt()
+                    for (i in 0 until n) {
+                        val k = decodeValue(r)
+                        val v = decodeValue(r)
+                        m[(k as? CborValue.Text)?.value ?: k.toString()] = v
+                    }
                 }
                 CborValue.MapVal(m)
             }
@@ -148,6 +178,7 @@ object Cbor {
             7 -> when (ai) {
                 20 -> CborValue.Bool(false)
                 21 -> CborValue.Bool(true)
+                31 -> CborValue.Other // 0xFF break 码
                 else -> CborValue.Null
             }
             else -> CborValue.Other

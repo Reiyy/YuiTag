@@ -234,7 +234,7 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * NCS (nRF52832/52810) OTA：MCUmgr SMP over BLE。
-     * 授权(0x6F) → 发现 SMP 服务 → image upload → reset → 校验重启。
+     * 授权(0x6F) → 发现 SMP 服务 → image upload → image test/confirm → reset → 校验重启。
      */
     private fun startNcsOta(bleDevice: BluetoothDevice, device: YuiTagDevice, uri: Uri) {
         viewModelScope.launch {
@@ -256,9 +256,9 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
             ncsSession = session
             session.gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
 
-            // Phase 2: 读取固件文件（支持 .bin / .zip）
+            // Phase 2: 读取固件文件（支持 .bin / .zip 并提取 SHA256 哈希）
             _uiState.update { it.copy(status = "正在读取固件文件...") }
-            val firmwareResult = FirmwareFileParser.readFirmwareImage(
+            val firmwareResult = FirmwareFileParser.readFirmware(
                 uri, getApplication<Application>().contentResolver
             )
             if (firmwareResult.isFailure) {
@@ -266,10 +266,11 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update { it.copy(isTransferring = false, error = "读取固件文件失败: ${firmwareResult.exceptionOrNull()?.message}") }
                 return@launch
             }
-            val image = firmwareResult.getOrThrow()
+            val firmware = firmwareResult.getOrThrow()
+            val image = firmware.data
             _uiState.update { it.copy(totalBytes = image.size, status = "正在传输固件...") }
 
-            // Phase 3: SMP image upload
+            // Phase 3: SMP image upload (image 0)
             val ok = session.upload(image) { progress ->
                 _uiState.update {
                     it.copy(
@@ -285,7 +286,26 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
 
-            // Phase 4: reset
+            // Phase 4: 固件校验与确认 (MCUboot Test & Confirm)
+            // 必须向 IMG_STATE 发送带 hash 的写请求，MCUboot 才会将 Slot 1 标记为待生效并在重启时搬运刷写
+            _uiState.update { it.copy(status = "正在校验并确认固件...") }
+            val deviceImages = session.getImages()
+            val targetHash = deviceImages.firstOrNull { it.slot == 1 }?.hash
+                ?: firmware.sha256
+                ?: run {
+                    session.disconnect(); ncsSession = null
+                    _uiState.update { it.copy(isTransferring = false, error = "未获取到固件校验哈希，升级取消") }
+                    return@launch
+                }
+
+            val confirmOk = session.testAndConfirm(targetHash, confirm = true)
+            if (!confirmOk) {
+                session.disconnect(); ncsSession = null
+                _uiState.update { it.copy(isTransferring = false, error = "固件确认失败（MCUboot未就绪），请重试") }
+                return@launch
+            }
+
+            // Phase 5: reset
             _uiState.update { it.copy(status = "正在触发设备重启...") }
             val resetOk = session.reset()
             delay(500)
@@ -298,7 +318,7 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
 
             _uiState.update { it.copy(progress = 1f, status = "固件传输完成，等待设备重启...") }
 
-            // Phase 5: 校验设备已重启进入正常模式
+            // Phase 6: 校验设备已重启进入正常模式
             verifyRebootToApp(bleDevice)
         }
     }

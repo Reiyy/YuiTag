@@ -96,18 +96,39 @@ object McumgrProtocol {
 
     /**
      * image upload（写 img_mgmt upload）。
-     * 首个分块（off==0）需带 len；后续分块 len 可省略，但为简单起见恒带。
+     * 单核设备（如 nRF52832）image 恒为 0。
+     * 首个分块（off==0）携带 len；后续分块仅携带 image, off, data，减少数据开销。
      */
-    fun imageUploadRequest(seq: Int, off: Int, totalLen: Int, data: ByteArray): ByteArray {
+    fun imageUploadRequest(
+        seq: Int,
+        off: Int,
+        totalLen: Int,
+        data: ByteArray
+    ): ByteArray {
+        val mapEntries = mutableListOf(
+            "image" to Cbor.encodeUInt(0),
+            "off" to Cbor.encodeUInt(off.toLong()),
+            "data" to Cbor.encodeBytes(data)
+        )
+        if (off == 0) {
+            mapEntries.add("len" to Cbor.encodeUInt(totalLen.toLong()))
+        }
+        return buildRequest(OP_WRITE, GROUP_IMG, IMG_UPLOAD, seq, Cbor.encodeMap(mapEntries))
+    }
+
+    /**
+     * image state write（写 img_mgmt state，执行 test 或 confirm）。
+     * @param hash 目标镜像的 SHA256 哈希
+     * @param confirm true 为永久确认（confirm），false 为测试运行（test）
+     */
+    fun imageStateWriteRequest(seq: Int, hash: ByteArray, confirm: Boolean): ByteArray {
         val cbor = Cbor.encodeMap(
             listOf(
-                "image" to Cbor.encodeUInt(1),
-                "len" to Cbor.encodeUInt(totalLen.toLong()),
-                "off" to Cbor.encodeUInt(off.toLong()),
-                "data" to Cbor.encodeBytes(data)
+                "hash" to Cbor.encodeBytes(hash),
+                "confirm" to Cbor.encodeBool(confirm)
             )
         )
-        return buildRequest(OP_WRITE, GROUP_IMG, IMG_UPLOAD, seq, cbor)
+        return buildRequest(OP_WRITE, GROUP_IMG, IMG_STATE, seq, cbor)
     }
 
     /** reset（写 os_mgmt reset） */
@@ -118,6 +139,9 @@ object McumgrProtocol {
 
     fun rcOf(payload: CborValue): Long? =
         (payload as? CborValue.MapVal)?.entries?.get("rc")?.asLong()
+
+    fun offOf(payload: CborValue): Long? =
+        (payload as? CborValue.MapVal)?.entries?.get("off")?.asLong()
 
     fun errOf(payload: CborValue): Pair<Long, Long>? {
         val err = (payload as? CborValue.MapVal)?.entries?.get("err") as? CborValue.MapVal
@@ -132,5 +156,32 @@ object McumgrProtocol {
         resp.err?.let { return false }
         val rc = resp.rc ?: return true
         return rc == 0L
+    }
+
+    data class SlotInfo(
+        val slot: Int,
+        val version: String?,
+        val hash: ByteArray?,
+        val bootable: Boolean,
+        val pending: Boolean,
+        val confirmed: Boolean,
+        val active: Boolean
+    )
+
+    /** 从 IMG_STATE 响应中解析各 slot 状态 */
+    fun parseImages(payload: CborValue): List<SlotInfo> {
+        val map = (payload as? CborValue.MapVal)?.entries ?: return emptyList()
+        val imagesArray = (map["images"] as? CborValue.ArrayVal)?.items ?: return emptyList()
+        return imagesArray.mapNotNull { item ->
+            val slotMap = (item as? CborValue.MapVal)?.entries ?: return@mapNotNull null
+            val slot = slotMap["slot"]?.asLong()?.toInt() ?: return@mapNotNull null
+            val version = slotMap["version"]?.asText()
+            val hash = slotMap["hash"]?.asBytes()
+            val bootable = slotMap["bootable"]?.asBool() ?: true
+            val pending = slotMap["pending"]?.asBool() ?: false
+            val confirmed = slotMap["confirmed"]?.asBool() ?: false
+            val active = slotMap["active"]?.asBool() ?: false
+            SlotInfo(slot, version, hash, bootable, pending, confirmed, active)
+        }
     }
 }

@@ -1006,11 +1006,23 @@ class BleGattClient {
                         if (cont.isActive) cont.resume(Result.success(session))
                     }
 
+                    var smpRetryCount = 0
                     fun findSmpService(g: BluetoothGatt) {
                         val svc = g.getService(smpSvcUuid)
                         val ch = svc?.getCharacteristic(smpChrUuid)
-                        FileLog.i(TAG, "[NCS] SMP service=${svc != null} char=${ch != null}")
+                        FileLog.i(TAG, "[NCS] SMP service=${svc != null} char=${ch != null} (第${smpRetryCount + 1}次尝试)")
                         if (ch == null) {
+                            smpRetryCount++
+                            if (smpRetryCount < 4) {
+                                FileLog.w(TAG, "[NCS] SMP 服务尚未暴露，等待重试 ($smpRetryCount/3)...")
+                                mainHandler.postDelayed({
+                                    try {
+                                        g.javaClass.getMethod("refresh")?.invoke(g)
+                                    } catch (_: Exception) {}
+                                    g.discoverServices()
+                                }, 700L)
+                                return
+                            }
                             fail("SMP 服务未发现（设备可能未进入 OTA 授权状态）")
                             return
                         }
@@ -1039,6 +1051,9 @@ class BleGattClient {
                             }
                             when (newState) {
                                 BluetoothProfile.STATE_CONNECTED -> {
+                                    try {
+                                        g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+                                    } catch (_: Exception) {}
                                     g.requestMtu(512)
                                 }
                                 BluetoothProfile.STATE_DISCONNECTED -> {
@@ -1112,7 +1127,7 @@ class BleGattClient {
                                                 gatt?.javaClass?.getMethod("refresh")?.invoke(gatt)
                                             } catch (_: Exception) {}
                                             gatt?.discoverServices()
-                                        }, 500)
+                                        }, 600L)
                                     } else {
                                         fail("OTA 授权被拒绝: ${YuiTagProtocol.statusDescription(statusByte)}")
                                     }
