@@ -139,9 +139,9 @@ class BleConnectionManager(private val gattClient: BleGattClient) {
 
     /**
      * 断开指定会话并等待物理断开确认（替代固定 delay）。
-     * 超时未确认则强制关闭 gatt 兜底。
+     * 超时未确认则强制关闭 gatt 兜底。已断开时立即返回。
      */
-    private suspend fun disconnectAndAwait(uid: String) {
+    suspend fun disconnectAndAwait(uid: String) {
         val session = sessions.remove(uid) ?: return
         heldCounts.remove(uid)
         try { session.disconnect() } catch (_: Exception) {}

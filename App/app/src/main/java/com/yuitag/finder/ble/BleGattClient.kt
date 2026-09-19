@@ -960,11 +960,13 @@ class BleGattClient {
     @SuppressLint("MissingPermission")
     suspend fun connectForNcsOta(
         device: BluetoothDevice,
-        aesKey: ByteArray
+        aesKey: ByteArray,
+        onStatusUpdate: ((String) -> Unit)? = null
     ): Result<NcsOtaSession> {
         FileLog.d("GATT", "══════ NCS OTA 授权 ${device.address} ══════")
+        onStatusUpdate?.invoke("正在连接设备...")
         return try {
-            withTimeout(20000L) {
+            withTimeout(30000L) {
                 suspendCancellableCoroutine { cont ->
                     var gatt: BluetoothGatt? = null
                     var cmdChar: BluetoothGattCharacteristic? = null
@@ -988,22 +990,55 @@ class BleGattClient {
                         if (cont.isActive) cont.resume(Result.failure(Exception(reason)))
                     }
 
+                    var authWriteRetries = 0
                     fun doSendAuth() {
-                        if (!cmdCccdDone || authSent || authDone) return
+                        if (!cmdCccdDone || authDone) return
+                        if (authSent && authWriteRetries >= 3) return
                         authSent = true
-                        FileLog.i(TAG, ">>> 发送 NCS OTA 授权加密帧 (0x6F) >>>")
+                        FileLog.i(TAG, ">>> 发送 NCS OTA 授权加密帧 (0x6F) (尝试第${authWriteRetries + 1}次) >>>")
                         val encrypted = CryptoUtils.buildOtaAuthFrame(aesKey)
-                        cmdChar?.let {
-                            it.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                            it.value = encrypted
-                            gatt?.writeCharacteristic(it)
-                        } ?: fail("CMD characteristic lost")
+                        val ch = cmdChar ?: run { fail("CMD characteristic lost"); return }
+                        ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                        ch.value = encrypted
+                        val ok = gatt?.writeCharacteristic(ch) ?: false
+                        if (!ok) {
+                            authWriteRetries++
+                            if (authWriteRetries < 4) {
+                                FileLog.w(TAG, "[NCS] 写入 0x6F 授权帧返回 false (底层忙)，50ms后重试...")
+                                authSent = false
+                                mainHandler.postDelayed({ doSendAuth() }, 50L)
+                            } else {
+                                fail("CMD characteristic write rejected")
+                            }
+                        }
                     }
 
                     fun createSession(g: BluetoothGatt, ch: BluetoothGattCharacteristic) {
+                        if (createdSession != null) return
                         val session = NcsOtaSession(g, ch, mtuValue)
                         createdSession = session
                         if (cont.isActive) cont.resume(Result.success(session))
+                    }
+
+                    fun subscribeSmpAndCreateSession(g: BluetoothGatt, ch: BluetoothGattCharacteristic) {
+                        smpChar = ch
+                        g.setCharacteristicNotification(ch, true)
+                        val cccd = ch.getDescriptor(YuiTagProtocol.CCCD_UUID)
+                            ?: ch.descriptors.firstOrNull { it.uuid.toString().contains("2902", true) }
+                        if (cccd != null) {
+                            cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                            val ok = g.writeDescriptor(cccd)
+                            if (!ok) {
+                                FileLog.w(TAG, "[NCS] SMP CCCD writeDescriptor 返回 false，50ms后重试...")
+                                mainHandler.postDelayed({
+                                    if (cont.isActive && createdSession == null) {
+                                        g.writeDescriptor(cccd)
+                                    }
+                                }, 50L)
+                            }
+                        } else {
+                            createSession(g, ch)
+                        }
                     }
 
                     var smpRetryCount = 0
@@ -1011,31 +1046,27 @@ class BleGattClient {
                         val svc = g.getService(smpSvcUuid)
                         val ch = svc?.getCharacteristic(smpChrUuid)
                         FileLog.i(TAG, "[NCS] SMP service=${svc != null} char=${ch != null} (第${smpRetryCount + 1}次尝试)")
-                        if (ch == null) {
-                            smpRetryCount++
-                            if (smpRetryCount < 4) {
-                                FileLog.w(TAG, "[NCS] SMP 服务尚未暴露，等待重试 ($smpRetryCount/3)...")
-                                mainHandler.postDelayed({
-                                    try {
-                                        g.javaClass.getMethod("refresh")?.invoke(g)
-                                    } catch (_: Exception) {}
-                                    g.discoverServices()
-                                }, 700L)
-                                return
-                            }
-                            fail("SMP 服务未发现（设备可能未进入 OTA 授权状态）")
+                        if (ch != null) {
+                            subscribeSmpAndCreateSession(g, ch)
                             return
                         }
-                        smpChar = ch
-                        g.setCharacteristicNotification(ch, true)
-                        val cccd = ch.getDescriptor(YuiTagProtocol.CCCD_UUID)
-                            ?: ch.descriptors.firstOrNull { it.uuid.toString().contains("2902", true) }
-                        if (cccd != null) {
-                            cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                            g.writeDescriptor(cccd)
-                        } else {
-                            createSession(g, ch)
+                        smpRetryCount++
+                        if (smpRetryCount < 4) {
+                            FileLog.w(TAG, "[NCS] SMP 服务尚未暴露，等待重试 ($smpRetryCount/3)...")
+                            mainHandler.postDelayed({
+                                try {
+                                    g.javaClass.getMethod("refresh")?.invoke(g)
+                                } catch (_: Exception) {}
+                                mainHandler.postDelayed({
+                                    val started = g.discoverServices()
+                                    if (!started) {
+                                        findSmpService(g)
+                                    }
+                                }, 150L)
+                            }, 500L)
+                            return
                         }
+                        fail("SMP 服务未发现（设备可能未进入 OTA 授权状态）")
                     }
 
                     val callback = object : BluetoothGattCallback() {
@@ -1051,10 +1082,13 @@ class BleGattClient {
                             }
                             when (newState) {
                                 BluetoothProfile.STATE_CONNECTED -> {
+                                    onStatusUpdate?.invoke("正在发现设备服务...")
                                     try {
                                         g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
                                     } catch (_: Exception) {}
-                                    g.requestMtu(512)
+                                    if (!g.requestMtu(512)) {
+                                        g.discoverServices()
+                                    }
                                 }
                                 BluetoothProfile.STATE_DISCONNECTED -> {
                                     g.close()
@@ -1077,14 +1111,21 @@ class BleGattClient {
                             if (status != BluetoothGatt.GATT_SUCCESS) {
                                 fail("Service discovery failed (status=$status)"); return
                             }
+                            // 探测是否已存在 SMP 服务（新固件静态模式或已有缓存）
+                            val preSmp = g.getService(smpSvcUuid)?.getCharacteristic(smpChrUuid)
+                            if (preSmp != null) {
+                                smpChar = preSmp
+                            }
+
                             if (!authDone) {
+                                onStatusUpdate?.invoke("正在进行OTA授权...")
                                 // Phase A：找 CMD 特征并发送 OTA 授权
                                 val coreSvc = g.getService(coreSvcUuid)
                                 cmdChar = coreSvc?.getCharacteristic(cmdUuid)
                                 if (cmdChar == null) {
                                     fail("CMD characteristic not found"); return
                                 }
-                                FileLog.i(TAG, "[NCS] CMD char 已发现，启用通知")
+                                FileLog.i(TAG, "[NCS] CMD char 已发现，SMP已预发现=${smpChar != null}，启用 CMD 通知")
                                 g.setCharacteristicNotification(cmdChar, true)
                                 val cccd = cmdChar!!.getDescriptor(YuiTagProtocol.CCCD_UUID)
                                     ?: cmdChar!!.descriptors.firstOrNull { it.uuid.toString().contains("2902", true) }
@@ -1093,10 +1134,10 @@ class BleGattClient {
                                     g.writeDescriptor(cccd)
                                 } else {
                                     cmdCccdDone = true
-                                    doSendAuth()
+                                    mainHandler.post { doSendAuth() }
                                 }
                             } else {
-                                // Phase B：授权完成后发现 SMP 服务
+                                // Phase B：授权完成后发现 SMP 服务 (兼容动态 SMP 模式)
                                 findSmpService(g)
                             }
                         }
@@ -1105,7 +1146,7 @@ class BleGattClient {
                             when (d.characteristic.uuid) {
                                 cmdUuid -> {
                                     cmdCccdDone = true
-                                    doSendAuth()
+                                    mainHandler.post { doSendAuth() }
                                 }
                                 smpChrUuid -> {
                                     smpChar?.let { createSession(g, it) }
@@ -1119,15 +1160,32 @@ class BleGattClient {
                                     val statusByte = YuiTagProtocol.extractStatus(value)
                                     FileLog.i(TAG, "<<< NCS OTA 授权响应: 0x${statusByte.toString(16)} (${YuiTagProtocol.statusDescription(statusByte)})")
                                     if (statusByte == YuiTagProtocol.STATUS_SUCCESS) {
-                                        FileLog.i(TAG, "══════ NCS OTA 授权成功，等待 SMP 服务注册... ══════")
                                         authDone = true
-                                        // 动态服务注册存在延迟，稍等后清缓存重发现
-                                        mainHandler.postDelayed({
-                                            try {
-                                                gatt?.javaClass?.getMethod("refresh")?.invoke(gatt)
-                                            } catch (_: Exception) {}
-                                            gatt?.discoverServices()
-                                        }, 600L)
+                                        onStatusUpdate?.invoke("OTA授权成功，正在准备传输通道...")
+                                        // 收到授权响应后立即锁定高速连接，防止任何潜在降速
+                                        try {
+                                            g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+                                        } catch (_: Exception) {}
+
+                                        if (smpChar != null) {
+                                            // 快路径：SMP 服务在首次服务发现中已就绪（静态注册或已有缓存），直接开启 SMP 通知并建连
+                                            FileLog.i(TAG, "══════ NCS OTA 授权成功，SMP 服务已就绪（静态模式） ══════")
+                                            subscribeSmpAndCreateSession(g, smpChar!!)
+                                        } else {
+                                            // 回退路径：存量旧固件动态注册 SMP 服务，需清缓存重发现
+                                            FileLog.i(TAG, "══════ NCS OTA 授权成功，等待动态 SMP 服务注册（兼容模式）... ══════")
+                                            mainHandler.postDelayed({
+                                                try {
+                                                    gatt?.javaClass?.getMethod("refresh")?.invoke(gatt)
+                                                } catch (_: Exception) {}
+                                                mainHandler.postDelayed({
+                                                    val started = gatt?.discoverServices() ?: false
+                                                    if (!started) {
+                                                        findSmpService(g)
+                                                    }
+                                                }, 150L)
+                                            }, 200L)
+                                        }
                                     } else {
                                         fail("OTA 授权被拒绝: ${YuiTagProtocol.statusDescription(statusByte)}")
                                     }
@@ -1162,5 +1220,4 @@ class BleGattClient {
             Result.failure(e)
         }
     }
-
 }

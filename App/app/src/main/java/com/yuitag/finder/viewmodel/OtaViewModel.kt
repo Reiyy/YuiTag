@@ -63,6 +63,9 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        // 进入 OTA 页面时主动断开既有会话
+        repository.bleConnectionManager.disconnect(deviceUid)
+
         // 预扫描：仅按广播（名 + MAC）检测设备是否已在 bootloader 模式。
         // 独立 bootloader 广播（YuiTag-OTA）仅存在于 bg22，NCS 无需此检测。
         val bleDevice = repository.getBluetoothDevice(deviceUid) ?: return
@@ -117,6 +120,9 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.update { it.copy(isTransferring = false, error = "设备未绑定，缺少加密密钥") }
                     return@launch
                 }
+
+                // 确保断开既有会话并确认物理断开（已断开时立即返回，有残留会话时安全释放）
+                repository.bleConnectionManager.disconnectAndAwait(deviceUid)
 
                 _uiState.update { it.copy(status = "正在进行OTA授权...") }
 
@@ -245,9 +251,13 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
 
+            // 确保断开既有会话并确认物理断开（已断开时立即返回，有残留会话时安全释放）
+            repository.bleConnectionManager.disconnectAndAwait(device.uid)
+
             // Phase 1: 连接 + OTA 授权 + 发现 SMP 服务
-            _uiState.update { it.copy(status = "正在进行OTA授权...") }
-            val sessionResult = gattClient.connectForNcsOta(bleDevice, aesKey)
+            val sessionResult = gattClient.connectForNcsOta(bleDevice, aesKey) { statusText ->
+                _uiState.update { it.copy(status = statusText) }
+            }
             if (sessionResult.isFailure) {
                 _uiState.update { it.copy(isTransferring = false, error = "OTA授权失败: ${sessionResult.exceptionOrNull()?.message}") }
                 return@launch
