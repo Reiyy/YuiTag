@@ -26,6 +26,8 @@ class BleConnectionManager(private val gattClient: BleGattClient) {
 
     // 查找页正在使用的会话（uid 集合）：后台延迟断开需让位于查找页
     private val findPageActiveUids: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    // 主页详情或特定业务持有的会话（uid 集合）：保持长连接，withSession 结束时不自动断开
+    private val heldUids: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     /** 标记查找页是否正在使用该设备会话（进入查找页置位，退出查找页清除） */
     fun setFindPageActive(uid: String, active: Boolean) {
@@ -34,6 +36,13 @@ class BleConnectionManager(private val gattClient: BleGattClient) {
 
     /** 查找页是否正在使用该设备会话 */
     fun isFindPageActive(uid: String): Boolean = findPageActiveUids.contains(uid)
+
+    /** 标记该设备会话是否处于常驻持有状态（如进入主页详情时置位，彻底关闭详情时清除） */
+    fun setHeld(uid: String, held: Boolean) {
+        if (held) heldUids.add(uid) else heldUids.remove(uid)
+    }
+
+    fun isHeld(uid: String): Boolean = heldUids.contains(uid) || (heldCounts[uid] ?: 0) > 0
 
     private val _sessionClosed = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val sessionClosed: SharedFlow<String> = _sessionClosed.asSharedFlow()
@@ -117,11 +126,10 @@ class BleConnectionManager(private val gattClient: BleGattClient) {
         val count = heldCounts.computeIfPresent(uid) { _, v -> v - 1 }
         if (count == null || count <= 0) {
             heldCounts.remove(uid)
+            heldUids.remove(uid)
             disconnect(uid)
         }
     }
-
-    private fun isHeld(uid: String): Boolean = (heldCounts[uid] ?: 0) > 0
 
     // --- 断开管理 ---
 
@@ -129,6 +137,7 @@ class BleConnectionManager(private val gattClient: BleGattClient) {
     fun disconnect(uid: String) {
         val session = sessions[uid] ?: return
         heldCounts.remove(uid)
+        heldUids.remove(uid)
         try { session.disconnect() } catch (_: Exception) {}
     }
 
@@ -144,6 +153,7 @@ class BleConnectionManager(private val gattClient: BleGattClient) {
     suspend fun disconnectAndAwait(uid: String) {
         val session = sessions.remove(uid) ?: return
         heldCounts.remove(uid)
+        heldUids.remove(uid)
         try { session.disconnect() } catch (_: Exception) {}
         if (!session.awaitDisconnected(1500)) {
             session.forceClose()

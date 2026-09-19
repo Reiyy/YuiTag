@@ -3,6 +3,7 @@ package com.yuitag.finder.ble
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -117,11 +118,11 @@ class FindSession(
         try { gatt.readRemoteRssi() } catch (_: Exception) {}
     }
 
-    fun sendRing(enable: Boolean) {
-        val cChar = cmdChar ?: return
-        val key = aesKey ?: return
+    fun sendRing(enable: Boolean): Boolean {
+        val cChar = cmdChar ?: return false
+        val key = aesKey ?: return false
         if (!disconnectRequested && !physicallyDisconnected) {
-            writeInternal(
+            return writeInternal(
                 CryptoUtils.buildCommandFrame(
                     YuiTagProtocol.CMD_ID_RING,
                     if (enable) YuiTagProtocol.CMD_ACTION_ON else YuiTagProtocol.CMD_ACTION_OFF,
@@ -130,13 +131,14 @@ class FindSession(
                 cChar
             )
         }
+        return false
     }
 
-    fun sendFindMode(enable: Boolean) {
-        val cChar = cmdChar ?: return
-        val key = aesKey ?: return
+    fun sendFindMode(enable: Boolean): Boolean {
+        val cChar = cmdChar ?: return false
+        val key = aesKey ?: return false
         if (!disconnectRequested && !physicallyDisconnected) {
-            writeInternal(
+            return writeInternal(
                 CryptoUtils.buildCommandFrame(
                     YuiTagProtocol.CMD_ID_FIND_MODE,
                     if (enable) YuiTagProtocol.CMD_ACTION_ON else YuiTagProtocol.CMD_ACTION_OFF,
@@ -145,6 +147,7 @@ class FindSession(
                 cChar
             )
         }
+        return false
     }
 
     /** 挂起发送响铃指令并等待固件通知确认 */
@@ -226,6 +229,9 @@ class FindSession(
                 return false
             }
             withTimeout(timeoutMs) { deferred.await() }
+        } catch (e: CancellationException) {
+            pendingCmdAwait = null
+            throw e
         } catch (_: Exception) {
             pendingCmdAwait = null
             false
@@ -256,6 +262,9 @@ class FindSession(
                 return false
             }
             withTimeout(timeoutMs) { deferred.await() }
+        } catch (e: CancellationException) {
+            pendingParamAwait = null
+            throw e
         } catch (_: Exception) {
             pendingParamAwait = null
             false
@@ -278,6 +287,9 @@ class FindSession(
                 return null
             }
             withTimeout(8000L) { deferred.await() }
+        } catch (e: CancellationException) {
+            readAwait = null
+            throw e
         } catch (_: Exception) {
             readAwait = null
             null
@@ -304,6 +316,8 @@ class FindSession(
                         readCharLocked(ch)?.let { values[ch.uuid] = String(it).trim() }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Exception) {
                 // 整体超时则返回已读取的部分数据
             }
@@ -339,6 +353,8 @@ class FindSession(
                     }
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             Result.failure(Exception("PARAM 读取超时"))
         }
@@ -388,6 +404,8 @@ class FindSession(
             if (!gatt.writeCharacteristic(ch)) return@withLock null
             val resp = withTimeout(8000L) { deferred.await() }
             if (resp.isEmpty()) null else CryptoUtils.parseFindMyStatusResponse(resp)
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             null
         } finally {

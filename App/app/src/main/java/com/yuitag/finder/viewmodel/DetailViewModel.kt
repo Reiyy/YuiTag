@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.yuitag.finder.ble.FileLog
 import com.yuitag.finder.ble.YuiTagProtocol
 import com.yuitag.finder.data.DeviceRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -95,22 +96,41 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
             // 复用统一会话读取 DIS 与 PARAM，避免单连接冲突
             val result = repository.bleConnectionManager.withSession(deviceUid, bleDevice, aesKey) { session ->
                 // --- 读取 DIS 设备信息 ---
-                session.readDisInfo(device?.name ?: "").onSuccess { info ->
-                    _uiState.update { it.copy(
-                        deviceName = info.deviceName,
-                        serialNumber = info.serialNumber,
-                        firmwareVer = info.firmwareVer,
-                        firmwarePlatform = info.firmwarePlatform,
-                        hardwareVersion = info.hardwareVersion,
-                        manufacturer = info.manufacturer,
-                        productName = info.productName,
-                        productModel = info.productModel,
-                        coreVersion = info.coreVersion
-                    ) }
-                    val dev = repository.getDevice(deviceUid)
-                    if (dev != null) {
-                        repository.upsertScannedDevice(dev.copy(
-                            name = info.deviceName,
+                // 仅当本地尚未缓存完整的固定硬件/固件信息时读取 DIS，避免每次进入都产生 7+ 个特征值读取的链路占用
+                val needReadDis = device?.serialNumber.isNullOrEmpty() ||
+                                  device?.firmwareVersion.isNullOrEmpty() ||
+                                  device?.hardwareVersion.isNullOrEmpty()
+
+                if (needReadDis) {
+                    session.readDisInfo(device?.name ?: "").onSuccess { info ->
+                        _uiState.update { it.copy(
+                            deviceName = info.deviceName,
+                            serialNumber = info.serialNumber,
+                            firmwareVer = info.firmwareVer,
+                            firmwarePlatform = info.firmwarePlatform,
+                            hardwareVersion = info.hardwareVersion,
+                            manufacturer = info.manufacturer,
+                            productName = info.productName,
+                            productModel = info.productModel,
+                            coreVersion = info.coreVersion
+                        ) }
+                        val dev = repository.getDevice(deviceUid)
+                        if (dev != null) {
+                            repository.upsertScannedDevice(dev.copy(
+                                name = info.deviceName,
+                                serialNumber = info.serialNumber,
+                                firmwareVersion = info.firmwareVer,
+                                firmwarePlatform = info.firmwarePlatform,
+                                hardwareVersion = info.hardwareVersion,
+                                manufacturer = info.manufacturer,
+                                productName = info.productName,
+                                productModel = info.productModel
+                            ))
+                        }
+                        // 持久化 GATT 读取的 DIS 信息，重启后可直接从数据库取值显示
+                        repository.updateDeviceReadInfo(
+                            uid = deviceUid,
+                            deviceName = info.deviceName,
                             serialNumber = info.serialNumber,
                             firmwareVersion = info.firmwareVer,
                             firmwarePlatform = info.firmwarePlatform,
@@ -118,22 +138,12 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                             manufacturer = info.manufacturer,
                             productName = info.productName,
                             productModel = info.productModel
-                        ))
+                        )
+                    }.onFailure { e ->
+                        if (e !is CancellationException) {
+                            _uiState.update { it.copy(loadError = "读取设备信息失败: ${e.message}") }
+                        }
                     }
-                    // 持久化 GATT 读取的 DIS 信息，重启后可直接从数据库取值显示
-                    repository.updateDeviceReadInfo(
-                        uid = deviceUid,
-                        deviceName = info.deviceName,
-                        serialNumber = info.serialNumber,
-                        firmwareVersion = info.firmwareVer,
-                        firmwarePlatform = info.firmwarePlatform,
-                        hardwareVersion = info.hardwareVersion,
-                        manufacturer = info.manufacturer,
-                        productName = info.productName,
-                        productModel = info.productModel
-                    )
-                }.onFailure { e ->
-                    _uiState.update { it.copy(loadError = "读取设备信息失败: ${e.message}") }
                 }
 
                 // --- 读取 PARAM 配置（广播名称、广播间隔） ---
@@ -158,17 +168,21 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                         repository.updateFindMyPeriod(deviceUid,
                             YuiTagProtocol.FindMyPeriod.fromIndex(param.findmyPeriodIndex).seconds
                         )
-                    }.onFailure {
-                        // PARAM 读取失败为非致命，保留缓存值但单独提示
-                        FileLog.w("DetailVM", "读取PARAM配置失败: ${it.message}")
-                        _uiState.update { it.copy(paramLoadError = "读取设备配置失败，已显示缓存值") }
+                    }.onFailure { e ->
+                        if (e !is CancellationException) {
+                            // PARAM 读取失败为非致命，保留缓存值但单独提示
+                            FileLog.w("DetailVM", "读取PARAM配置失败: ${e.message}")
+                            _uiState.update { it.copy(paramLoadError = "读取设备配置失败，已显示缓存值") }
+                        }
                     }
                 }
                 Unit
             }
 
             result.onFailure { e ->
-                _uiState.update { it.copy(loadError = "连接设备失败: ${e.message}") }
+                if (e !is CancellationException) {
+                    _uiState.update { it.copy(loadError = "连接设备失败: ${e.message}") }
+                }
             }
 
             _uiState.update { it.copy(isLoading = false) }

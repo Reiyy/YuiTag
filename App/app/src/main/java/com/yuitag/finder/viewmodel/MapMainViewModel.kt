@@ -213,6 +213,7 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
 
     /** 选中的设备已从列表移除（删除/解绑）：回到列表模式并清理该设备的残留状态 */
     private fun handleSelectedDeviceRemoved(uid: String) {
+        repository.bleConnectionManager.setHeld(uid, false)
         _uiState.update {
             it.copy(
                 selectedDeviceUid = null,
@@ -433,8 +434,10 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
         // 仅 Find My 已启用时连接后校时；已停用/不支持/未知状态均跳过
         val findmyEnabled = _boundDevices.value.find { it.uid == uid }?.findmyEnabled == true
 
-        if (repository.bleConnectionManager.getSession(uid) != null) {
+        val existingSession = repository.bleConnectionManager.getSession(uid)
+        if (existingSession != null) {
             updateConnectionState(uid, DeviceConnectionState.CONNECTED)
+            onConnected?.invoke(existingSession)
             return
         }
 
@@ -447,13 +450,16 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
             val session = result.getOrNull()
             if (session != null) {
                 if (isActive) updateConnectionState(uid, DeviceConnectionState.CONNECTED)
+                // 优先执行用户传入的就绪回调（例如响铃），杜绝被耗时校时阻塞
+                if (isActive) onConnected?.invoke(session)
                 if (isActive && findmyEnabled) {
-                    val synced = session.timeSync(System.currentTimeMillis() / 1000)
-                    if (synced && isActive) {
-                        Toast.makeText(getApplication(), "Tag校时成功", Toast.LENGTH_SHORT).show()
+                    launch {
+                        val synced = session.timeSync(System.currentTimeMillis() / 1000)
+                        if (synced && isActive) {
+                            Toast.makeText(getApplication(), "Tag校时成功", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
-                if (isActive) onConnected?.invoke(session)
             } else {
                 // 连接失败：设备此刻不在附近，恢复为离线（此前误置 ONLINE 导致详情页标签错显"在线"）
                 if (isActive) {
@@ -467,6 +473,7 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
     private fun disconnectFromDevice(uid: String) {
         connectJob?.cancel()
         connectJob = null
+        repository.bleConnectionManager.setHeld(uid, false)
 
         val session = repository.bleConnectionManager.getSession(uid)
         if (session != null) {
@@ -542,8 +549,13 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
 
     fun selectDevice(device: YuiTagDevice) {
         val uid = device.uid
+        val prevUid = _uiState.value.selectedDeviceUid
+        if (prevUid != null && prevUid != uid) {
+            repository.bleConnectionManager.setHeld(prevUid, false)
+        }
         backToListDisconnectJob?.cancel()
         _uiState.update { it.copy(selectedDeviceUid = uid, bottomSheetMode = BottomSheetMode.DETAIL) }
+        repository.bleConnectionManager.setHeld(uid, true)
         // 5 分钟内最近扫描到（"在你身边/在你附近"）即自动建联；否则不盲连
         if (isRecentlySeen(device)) connectToDevice(uid)
     }
@@ -551,8 +563,13 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
     /** 地图标记点击：按 uid 选中设备并展开详情 */
     fun selectDeviceByUid(uid: String) {
         val device = _boundDevices.value.find { it.uid == uid } ?: return
+        val prevUid = _uiState.value.selectedDeviceUid
+        if (prevUid != null && prevUid != uid) {
+            repository.bleConnectionManager.setHeld(prevUid, false)
+        }
         backToListDisconnectJob?.cancel()
         _uiState.update { it.copy(selectedDeviceUid = uid, bottomSheetMode = BottomSheetMode.DETAIL) }
+        repository.bleConnectionManager.setHeld(uid, true)
         if (isRecentlySeen(device)) connectToDevice(uid)
     }
 
@@ -584,8 +601,19 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
         if (session == null) {
             // 未连接：自动建联，连上后响铃（显式用户动作，忽略健康度/在线门槛）
             connectToDevice(uid) { s ->
-                try { s.sendRing(true) } catch (_: Exception) {}
-                _uiState.update { it.copy(ringActive = true, ringTargetUid = uid) }
+                val sent = s.sendRing(true)
+                if (sent) {
+                    _uiState.update { it.copy(ringActive = true, ringTargetUid = uid) }
+                } else {
+                    viewModelScope.launch {
+                        val ok = s.sendRingAwait(true, 1500L)
+                        if (ok) {
+                            _uiState.update { it.copy(ringActive = true, ringTargetUid = uid) }
+                        } else {
+                            Toast.makeText(getApplication(), "发送响铃指令失败，请重试", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
             }
             return
         }
@@ -593,11 +621,27 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
         val currentlyActive = _uiState.value.ringActive && _uiState.value.ringTargetUid == uid
 
         if (currentlyActive) {
-            try { session.sendRing(false) } catch (_: Exception) {}
+            val sent = session.sendRing(false)
             _uiState.update { it.copy(ringActive = false, ringTargetUid = null) }
+            if (!sent) {
+                viewModelScope.launch {
+                    session.sendRingAwait(false, 1500L)
+                }
+            }
         } else {
-            try { session.sendRing(true) } catch (_: Exception) {}
-            _uiState.update { it.copy(ringActive = true, ringTargetUid = uid) }
+            val sent = session.sendRing(true)
+            if (sent) {
+                _uiState.update { it.copy(ringActive = true, ringTargetUid = uid) }
+            } else {
+                viewModelScope.launch {
+                    val ok = session.sendRingAwait(true, 1500L)
+                    if (ok) {
+                        _uiState.update { it.copy(ringActive = true, ringTargetUid = uid) }
+                    } else {
+                        Toast.makeText(getApplication(), "发送响铃指令失败，请重试", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
         }
     }
 
@@ -890,6 +934,10 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
         connectJob?.cancel()
         healthTickJob?.cancel()
         backToListDisconnectJob?.cancel()
+        val uid = _uiState.value.selectedDeviceUid
+        if (uid != null && ::repository.isInitialized) {
+            repository.bleConnectionManager.setHeld(uid, false)
+        }
         if (::repository.isInitialized) repository.bleConnectionManager.disconnectAll()
         if (!liteMode) locationProvider.stopLocationUpdates()
         if (::repository.isInitialized) repository.clearScannedDevices()
