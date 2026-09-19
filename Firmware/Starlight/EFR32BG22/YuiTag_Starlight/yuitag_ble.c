@@ -534,8 +534,8 @@ void yuitag_ble_try_conn_param_update(YuiTagDevice *dev)
         return;
     }
 
-    // 预留 2s 给服务发现流程，完成后再切入低功耗参数
-    if (platform_millis() - s_conn_start_ms < 2000) {
+    // 预留 15.0s 充裕窗口给服务发现与初始交互，完成后再切入平衡降速参数
+    if (platform_millis() - s_conn_start_ms < 15000) {
         return;
     }
 
@@ -544,18 +544,18 @@ void yuitag_ble_try_conn_param_update(YuiTagDevice *dev)
         return;
     }
 
-    /* 符合 Apple 配件设计指南规范:
-     * 1. 间隔 1000ms (800 * 1.25ms)
-     * 2. 从机延迟 1 -> 等效有效间隔 2000ms (<= 2.0s)
-     * 3. 监控超时 6000ms (600 * 10ms <= 6.0s 且 > 2.0s * 2)
+    /* 平衡功耗与响应的温和降速参数:
+     * 1. 间隔 60ms ~ 90ms (48 ~ 72 * 1.25ms)，保证双向低延迟与高响应度
+     * 2. 从机延迟 0 (禁止跳过事件，彻底杜绝超时与交互卡顿)
+     * 3. 监控超时 4000ms (400 * 10ms)
      */
     sl_bt_connection_set_parameters(s_connection,
-        800,
-        800,
-        1,
-        600,
+        48,
+        72,
+        0,
+        400,
         0, 0);
 
     s_conn_param_updated = true;
-    platform_log("[CONN] Param update: 1000ms, latency=1, timeout=6s");
+    platform_log("[CONN] Balanced param update requested: 60-90ms, lat=0, to=4s");
 }
