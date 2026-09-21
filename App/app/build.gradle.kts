@@ -15,6 +15,11 @@ android {
         targetSdk = 35
         versionCode = 2
         versionName = "1.0.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    sourceSets {
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
     }
 
     buildTypes {
@@ -79,4 +84,11 @@ dependencies {
 
     // Gson (theme config JSON serialization)
     implementation("com.google.code.gson:gson:2.11.0")
+
+    // Testing
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.room.testing)
 }

@@ -572,10 +572,17 @@ class DeviceRepository(
     // --- 数据迁移：从 SharedPreferences 迁移旧密钥到 Room ---
 
     suspend fun migrateLegacyKeys(androidContext: android.content.Context) {
+        val settingsPrefs = androidContext.getSharedPreferences("yuitag_settings", android.content.Context.MODE_PRIVATE)
+        if (settingsPrefs.getBoolean("legacy_keys_migrated", false)) return
+
         val prefs = androidContext.getSharedPreferences("yuitag_keys", android.content.Context.MODE_PRIVATE)
         val allKeys = prefs.all.filterKeys { it.startsWith("aes_") }
-        if (allKeys.isEmpty()) return
+        if (allKeys.isEmpty()) {
+            settingsPrefs.edit().putBoolean("legacy_keys_migrated", true).apply()
+            return
+        }
 
+        var migratedCount = 0
         for ((key, value) in allKeys) {
             val uid = key.removePrefix("aes_")
             val existing = dao.getByUid(uid)
@@ -600,10 +607,15 @@ class DeviceRepository(
                             current + (uid to dev.copy(isBound = true, aesKey = aesKey))
                         } else current
                     }
-                } catch (_: Exception) { }
+                    migratedCount++
+                } catch (e: Exception) {
+                    FileLog.e("DB", "旧密钥迁移失败 [uid=$uid]: ${e.message}", e)
+                }
             }
         }
+        FileLog.i("DB", "旧版密钥迁移完成: 共迁移 $migratedCount 条设备密钥")
         prefs.edit().clear().apply()
+        settingsPrefs.edit().putBoolean("legacy_keys_migrated", true).apply()
     }
 
     // --- GATT FindSession 会话管理 ---

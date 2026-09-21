@@ -2,12 +2,14 @@ package com.yuitag.finder.data.local
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
-import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import com.yuitag.finder.data.YuiTagDevice
 
 /**
  * Room 实体：已绑定的 YuiTag 设备
+ *
+ * ⚠️ 变更规范：若在此实体中增删改任何字段，严禁在当前数据库版本硬改！
+ * 必须在 YuiTagDatabase 中将 version 递增（如 2 -> 3），并在 @Database 中声明 AutoMigration。
  */
 @Entity(tableName = "devices")
 @TypeConverters(Converters::class)
