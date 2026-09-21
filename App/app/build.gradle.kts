@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "com.yuitag.finder"
+    namespace = "com.reiyy.yuitag"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.yuitag.finder"
+        applicationId = "com.reiyy.yuitag"
         minSdk = 31
         targetSdk = 35
         versionCode = 2
