@@ -166,6 +166,7 @@ fun DeviceListContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
+                    .simpleVerticalScrollbar(lazyListState)
             ) {
                 items(localList, key = { it.uid }) { device ->
                     ReorderableItem(reorderableState, key = device.uid) { isDragging ->

@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -68,6 +69,7 @@ import com.yuitag.finder.ui.components.BindPopupCard
 import com.yuitag.finder.ui.components.BindPopupState
 import com.yuitag.finder.ui.components.DeviceTypeIcon
 import com.yuitag.finder.ui.components.HealthStateTag
+import com.yuitag.finder.ui.components.simpleVerticalScrollbar
 import com.yuitag.finder.viewmodel.BottomSheetMode
 import com.yuitag.finder.viewmodel.DeviceHealthState
 import com.yuitag.finder.viewmodel.MapMainViewModel
@@ -303,7 +305,11 @@ private fun LiteDeviceList(
             modifier = modifier
         )
     } else {
-        LazyColumn(modifier = modifier) {
+        val listState = rememberLazyListState()
+        LazyColumn(
+            state = listState,
+            modifier = modifier.simpleVerticalScrollbar(listState)
+        ) {
             items(devices, key = { it.uid }) { device ->
                 Column(modifier = Modifier.fillMaxWidth()) {
                     LiteDeviceListItem(
