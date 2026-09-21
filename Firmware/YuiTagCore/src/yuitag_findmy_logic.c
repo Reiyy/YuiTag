@@ -9,6 +9,7 @@
 #include "yuitag_findmy.h"
 #include "yuitag_crypto.h"
 #include "yuitag_platform_api.h"
+#include "yuitag_adv.h"
 
 #include <string.h>
 
@@ -197,12 +198,7 @@ bool yuitag_findmy_get_current_key(uint8_t keyOut[FINDMY_KEY_LEN])
 void yuitag_findmy_get_current_addr(uint8_t addrOut[6])
 {
     if (s_key_valid) {
-        addrOut[0] = s_cached_key[0] | 0xC0;
-        addrOut[1] = s_cached_key[1];
-        addrOut[2] = s_cached_key[2];
-        addrOut[3] = s_cached_key[3];
-        addrOut[4] = s_cached_key[4];
-        addrOut[5] = s_cached_key[5];
+        yuitag_findmy_key_to_addr(s_cached_key, addrOut);
     } else {
         memset(addrOut, 0, 6);
     }

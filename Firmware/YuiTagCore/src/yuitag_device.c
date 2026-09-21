@@ -472,8 +472,6 @@ void yuitag_device_clear_binding(YuiTagDevice *dev)
     dev->isBound = false;
     dev->waitingVerify = false;
 
-    platform_timer_oneshot_stop();
-
     yuitag_crypto_clear_aes_key();
 #ifndef IS_SPARKS
     yuitag_crypto_ecdh_cleanup();
