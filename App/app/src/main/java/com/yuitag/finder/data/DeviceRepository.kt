@@ -74,6 +74,7 @@ class DeviceRepository(
                     manufacturer = device.manufacturer.ifEmpty { existing.manufacturer },
                     productName = device.productName.ifEmpty { existing.productName },
                     productModel = device.productModel.ifEmpty { existing.productModel },
+                    coreVersion = device.coreVersion.ifEmpty { existing.coreVersion },
                     serialNumber = device.serialNumber.ifEmpty { existing.serialNumber },
                     advInterval = if (device.advInterval > 0) device.advInterval else existing.advInterval,
                     broadcastName = device.broadcastName.ifEmpty { existing.broadcastName },
@@ -123,6 +124,7 @@ class DeviceRepository(
                 manufacturer = entity.manufacturer,
                 productName = entity.productName,
                 productModel = entity.productModel,
+                coreVersion = entity.coreVersion,
                 serialNumber = entity.serialNumber,
                 broadcastName = entity.broadcastName,
                 advIntervalNormal = entity.advIntervalNormal,
@@ -173,6 +175,7 @@ class DeviceRepository(
         manufacturer: String = "",
         productName: String = "",
         productModel: String = "",
+        coreVersion: String = "",
         deviceName: String = "",
         findmySupported: Boolean? = null
     ) {
@@ -190,6 +193,7 @@ class DeviceRepository(
             manufacturer = manufacturer,
             productName = productName,
             productModel = productModel,
+            coreVersion = coreVersion,
             aesKey = aesKey,
             boundAt = System.currentTimeMillis(),
             deviceName = deviceName,
@@ -212,6 +216,7 @@ class DeviceRepository(
                     manufacturer = manufacturer,
                     productName = productName,
                     productModel = productModel,
+                    coreVersion = coreVersion,
                     serialNumber = serialNumber,
                     deviceName = deviceName,
                     findmySupported = findmySupported
@@ -230,7 +235,8 @@ class DeviceRepository(
         hardwareVersion: String,
         manufacturer: String,
         productName: String,
-        productModel: String
+        productModel: String,
+        coreVersion: String = ""
     ) {
         dao.updateDeviceReadInfo(
             uid = uid,
@@ -241,7 +247,8 @@ class DeviceRepository(
             hardwareVersion = hardwareVersion,
             manufacturer = manufacturer,
             productName = productName,
-            productModel = productModel
+            productModel = productModel,
+            coreVersion = coreVersion
         )
         _boundDevicesCache.update { current ->
             val existing = current[uid]
@@ -254,7 +261,8 @@ class DeviceRepository(
                     hardwareVersion = hardwareVersion,
                     manufacturer = manufacturer,
                     productName = productName,
-                    productModel = productModel
+                    productModel = productModel,
+                    coreVersion = coreVersion
                 ))
             } else current
         }
@@ -269,7 +277,8 @@ class DeviceRepository(
                     hardwareVersion = hardwareVersion,
                     manufacturer = manufacturer,
                     productName = productName,
-                    productModel = productModel
+                    productModel = productModel,
+                    coreVersion = coreVersion
                 ))
             } else current
         }
@@ -476,6 +485,7 @@ class DeviceRepository(
                     manufacturer = entity.manufacturer,
                     productName = entity.productName,
                     productModel = entity.productModel,
+                    coreVersion = entity.coreVersion,
                     serialNumber = entity.serialNumber,
                     broadcastName = entity.broadcastName,
                     advIntervalNormal = entity.advIntervalNormal,
@@ -659,6 +669,7 @@ class DeviceRepository(
                         manufacturer = entity.manufacturer,
                         productName = entity.productName,
                         productModel = entity.productModel,
+                        coreVersion = entity.coreVersion,
                         serialNumber = entity.serialNumber,
                         broadcastName = entity.broadcastName,
                         advIntervalNormal = entity.advIntervalNormal,

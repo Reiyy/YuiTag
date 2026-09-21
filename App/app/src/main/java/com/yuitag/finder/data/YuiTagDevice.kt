@@ -22,6 +22,7 @@ data class YuiTagDevice(
     val manufacturer: String = "",
     val productName: String = "",       // 产品名称
     val productModel: String = "",      // 产品型号
+    val coreVersion: String = "",       // 核心版本 (0x2A28)
     val serialNumber: String = "",      // 完整序列号 (24 位十六进制字符)
     val lastSeen: Long = System.currentTimeMillis(),
     // 广播与网络配置
@@ -57,6 +58,7 @@ data class YuiTagDevice(
             manufacturer == other.manufacturer &&
             productName == other.productName &&
             productModel == other.productModel &&
+            coreVersion == other.coreVersion &&
             serialNumber == other.serialNumber &&
             lastSeen == other.lastSeen &&
             broadcastName == other.broadcastName &&
@@ -91,6 +93,7 @@ data class YuiTagDevice(
         result = 31 * result + manufacturer.hashCode()
         result = 31 * result + productName.hashCode()
         result = 31 * result + productModel.hashCode()
+        result = 31 * result + coreVersion.hashCode()
         result = 31 * result + serialNumber.hashCode()
         result = 31 * result + lastSeen.hashCode()
         result = 31 * result + broadcastName.hashCode()

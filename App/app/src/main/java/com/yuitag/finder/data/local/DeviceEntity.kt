@@ -26,6 +26,7 @@ data class DeviceEntity(
     val manufacturer: String = "",      // 厂商信息
     val productName: String = "",       // 产品名称（从 MODEL_NUMBER 拆分）
     val productModel: String = "",      // 产品型号（从 MODEL_NUMBER 拆分）
+    val coreVersion: String = "",       // 核心版本 (0x2A28)
     val aesKey: ByteArray? = null,      // AES-128密钥 (绑定后存储)
     val boundAt: Long = System.currentTimeMillis(),  // 绑定时间戳
     // 广播与网络配置
@@ -59,6 +60,7 @@ data class DeviceEntity(
             manufacturer == other.manufacturer &&
             productName == other.productName &&
             productModel == other.productModel &&
+            coreVersion == other.coreVersion &&
             boundAt == other.boundAt &&
             broadcastName == other.broadcastName &&
             advIntervalNormal == other.advIntervalNormal &&
@@ -90,6 +92,7 @@ data class DeviceEntity(
         result = 31 * result + manufacturer.hashCode()
         result = 31 * result + productName.hashCode()
         result = 31 * result + productModel.hashCode()
+        result = 31 * result + coreVersion.hashCode()
         result = 31 * result + boundAt.hashCode()
         result = 31 * result + broadcastName.hashCode()
         result = 31 * result + (advIntervalNormal ?: 0)
@@ -129,6 +132,7 @@ fun DeviceEntity.toDomainModel(): YuiTagDevice = YuiTagDevice(
     manufacturer = manufacturer,
     productName = productName,
     productModel = productModel,
+    coreVersion = coreVersion,
     serialNumber = serialNumber,
     broadcastName = broadcastName,
     advIntervalNormal = advIntervalNormal,

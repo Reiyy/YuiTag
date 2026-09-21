@@ -396,6 +396,7 @@ class BleGattClient {
                         dis.getCharacteristic(YuiTagProtocol.SERIAL_UUID)?.let { disChars.add(it) }
                         dis.getCharacteristic(YuiTagProtocol.FW_REV_UUID)?.let { disChars.add(it) }
                         dis.getCharacteristic(YuiTagProtocol.HW_REV_UUID)?.let { disChars.add(it) }
+                        dis.getCharacteristic(YuiTagProtocol.SW_REV_UUID)?.let { disChars.add(it) }
                         dis.getCharacteristic(YuiTagProtocol.MANUF_UUID)?.let { disChars.add(it) }
                     }
                     for (ch in disChars) {
@@ -409,7 +410,8 @@ class BleGattClient {
                         serialNumber = disValues[YuiTagProtocol.SERIAL_UUID] ?: "",
                         firmwareVersion = disValues[YuiTagProtocol.FW_REV_UUID] ?: "",
                         hardwareVersion = disValues[YuiTagProtocol.HW_REV_UUID] ?: "",
-                        manufacturer = disValues[YuiTagProtocol.MANUF_UUID] ?: ""
+                        manufacturer = disValues[YuiTagProtocol.MANUF_UUID] ?: "",
+                        coreVersion = disValues[YuiTagProtocol.SW_REV_UUID] ?: ""
                     )
 
                     // 10. FindMy 校时 — Sparks 不支持，直接跳过

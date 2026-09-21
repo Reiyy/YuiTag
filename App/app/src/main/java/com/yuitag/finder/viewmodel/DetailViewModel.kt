@@ -53,6 +53,7 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                 manufacturer = device.manufacturer,
                 productName = device.productName,
                 productModel = device.productModel,
+                coreVersion = device.coreVersion,
                 // 预填缓存中的广播配置
                 broadcastName = device.broadcastName,
                 advIntervalNormal = device.advIntervalNormal,
@@ -99,7 +100,8 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                 // 仅当本地尚未缓存完整的固定硬件/固件信息时读取 DIS，避免每次进入都产生 7+ 个特征值读取的链路占用
                 val needReadDis = device?.serialNumber.isNullOrEmpty() ||
                                   device?.firmwareVersion.isNullOrEmpty() ||
-                                  device?.hardwareVersion.isNullOrEmpty()
+                                  device?.hardwareVersion.isNullOrEmpty() ||
+                                  device?.coreVersion.isNullOrEmpty()
 
                 if (needReadDis) {
                     session.readDisInfo(device?.name ?: "").onSuccess { info ->
@@ -124,7 +126,8 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                                 hardwareVersion = info.hardwareVersion,
                                 manufacturer = info.manufacturer,
                                 productName = info.productName,
-                                productModel = info.productModel
+                                productModel = info.productModel,
+                                coreVersion = info.coreVersion
                             ))
                         }
                         // 持久化 GATT 读取的 DIS 信息，重启后可直接从数据库取值显示
@@ -137,7 +140,8 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                             hardwareVersion = info.hardwareVersion,
                             manufacturer = info.manufacturer,
                             productName = info.productName,
-                            productModel = info.productModel
+                            productModel = info.productModel,
+                            coreVersion = info.coreVersion
                         )
                     }.onFailure { e ->
                         if (e !is CancellationException) {

@@ -78,6 +78,7 @@ object ConfigBackupManager {
         val manufacturer: String = "",
         val productName: String = "",
         val productModel: String = "",
+        val coreVersion: String = "",
         val aesKey: String? = null,             // Base64
         val boundAt: Long = 0L,
         val broadcastName: String = "",
@@ -187,6 +188,7 @@ object ConfigBackupManager {
                     writer.name("manufacturer").value(entity.manufacturer)
                     writer.name("productName").value(entity.productName)
                     writer.name("productModel").value(entity.productModel)
+                    writer.name("coreVersion").value(entity.coreVersion)
                     writer.name("aesKey")
                     if (entity.aesKey != null) {
                         writer.value(Base64.encodeToString(entity.aesKey, Base64.NO_WRAP))
@@ -314,6 +316,7 @@ object ConfigBackupManager {
             manufacturer = bd.manufacturer,
             productName = bd.productName,
             productModel = bd.productModel,
+            coreVersion = bd.coreVersion,
             aesKey = bd.aesKey?.let { Base64.decode(it, Base64.NO_WRAP) },
             boundAt = if (bd.boundAt > 0) bd.boundAt else System.currentTimeMillis(),
             broadcastName = bd.broadcastName,

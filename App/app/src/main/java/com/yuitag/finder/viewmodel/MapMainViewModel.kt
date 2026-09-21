@@ -668,6 +668,7 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
                     firmwareVersion = disInfo.firmwareVer, firmwarePlatform = disInfo.firmwarePlatform,
                     hardwareVersion = disInfo.hardwareVersion, manufacturer = disInfo.manufacturer,
                     productName = disInfo.productName, productModel = disInfo.productModel,
+                    coreVersion = disInfo.coreVersion,
                     deviceName = disInfo.deviceName,
                     findmySupported = if (bindResult.isSparks) false else null)
 

@@ -70,7 +70,7 @@ interface DeviceDao {
     @Query("UPDATE devices SET deviceName = :deviceName, serialNumber = :serialNumber, " +
         "firmwareVersion = :firmwareVersion, firmwarePlatform = :firmwarePlatform, " +
         "hardwareVersion = :hardwareVersion, manufacturer = :manufacturer, " +
-        "productName = :productName, productModel = :productModel WHERE uid = :uid")
+        "productName = :productName, productModel = :productModel, coreVersion = :coreVersion WHERE uid = :uid")
     suspend fun updateDeviceReadInfo(
         uid: String,
         deviceName: String,
@@ -80,7 +80,8 @@ interface DeviceDao {
         hardwareVersion: String,
         manufacturer: String,
         productName: String,
-        productModel: String
+        productModel: String,
+        coreVersion: String
     )
 
     /** 持久化设备 MAC 地址（供直接回连使用） */
