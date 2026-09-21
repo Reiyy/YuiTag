@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-and-release:
+    name: Build & Publish Official Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x App/gradlew
+
+      # 正式 Release 编译
+      - name: Build Android Release APK
+        working-directory: ./App
+        run: ./gradlew assembleRelease
+
+      # 正式版本签名
+      - name: Sign Release APK
+        uses: r0adkll/sign-android-release@v1
+        id: sign_app
+        with:
+          releaseDirectory: App/app/build/outputs/apk/release
+          signingKey: ${{ secrets.SIGNING_KEY }}
+          alias: ${{ secrets.KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+
+      # 归集并重命名已签名的 Release APK
+      - name: Prepare Release Assets
+        run: |
+          mkdir -p release-assets
+
+          # 获取签名后的 APK 文件路径
+          SIGNED_APK="${{ steps.sign_app.outputs.signedFiles }}"
+          if [ -z "$SIGNED_APK" ] || [ ! -f "$SIGNED_APK" ]; then
+            SIGNED_APK=$(find App/app/build/outputs/apk/release -name "*.apk" ! -name "*-unsigned.apk" | head -n 1)
+          fi
+
+          if [ -n "$SIGNED_APK" ] && [ -f "$SIGNED_APK" ]; then
+            cp "$SIGNED_APK" "release-assets/YuiTag-App-${{ github.ref_name }}.apk"
+            echo "Prepared asset: release-assets/YuiTag-App-${{ github.ref_name }}.apk"
+          else
+            echo "Error: Signed APK not found! Check signing step logs."
+            exit 1
+          fi
+
+      # 创建 GitHub Release 草稿并上传已签名的 APK
+      - name: Create GitHub Release (Draft)
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            release-assets/*.apk
