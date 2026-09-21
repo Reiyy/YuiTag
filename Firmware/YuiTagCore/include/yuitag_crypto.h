@@ -7,7 +7,7 @@
 // platform_crypto_* 函数提供。
 // ============================================================
 
-#include "yuitag_config_common.h"
+#include "yuitag_config.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>

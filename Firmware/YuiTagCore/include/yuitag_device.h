@@ -5,7 +5,7 @@
 // YuiTag 设备状态机与业务逻辑接口 (跨平台核心)
 // ============================================================
 
-#include "yuitag_config_common.h"
+#include "yuitag_config.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>

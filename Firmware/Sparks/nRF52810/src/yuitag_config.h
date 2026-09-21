@@ -11,7 +11,9 @@
 #include <stdbool.h>
 
 // ---- 版本标识: Sparks (低配版，无 FindMy / 无 ECDH / 无 OTA) ----
+#ifndef IS_SPARKS
 #define IS_SPARKS
+#endif
 
 // ---- 编译期日志开关与输出宏 ----
 #ifndef YUITAG_LOG_ENABLE

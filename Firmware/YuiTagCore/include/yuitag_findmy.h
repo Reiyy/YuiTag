@@ -9,7 +9,7 @@
 
 #ifndef IS_SPARKS
 
-#include "yuitag_config_common.h"
+#include "yuitag_config.h"
 #include <stdint.h>
 #include <stdbool.h>
 

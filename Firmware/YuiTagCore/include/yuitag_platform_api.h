@@ -12,6 +12,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "yuitag_config.h"
+
 // ---- 日志 ----
 // 由各平台在 yuitag_config.h 中通过宏覆盖实现
 // Core 代码中调用 platform_log()，若平台未定义则默认为空操作

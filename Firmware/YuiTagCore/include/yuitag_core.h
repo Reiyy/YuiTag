@@ -6,7 +6,7 @@
 // 包含此头文件即可访问所有核心接口。
 // ============================================================
 
-#include "yuitag_config_common.h"
+#include "yuitag_config.h"
 #include "yuitag_platform_api.h"
 #include "yuitag_buzzer_types.h"
 #include "yuitag_crypto.h"

@@ -10,7 +10,7 @@
 // (Zephyr: struct bt_data; SiLabs: LTV 序列化)。
 // ============================================================
 
-#include "yuitag_config_common.h"
+#include "yuitag_config.h"
 #include "yuitag_device.h"
 #include <stdint.h>
 #include <stddef.h>

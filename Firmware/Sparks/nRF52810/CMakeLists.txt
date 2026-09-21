@@ -24,3 +24,5 @@ target_sources(app PRIVATE
     ${YUITAG_CORE_DIR}/lib/tiny_aes.c
     ${YUITAG_CORE_DIR}/lib/sha256.c
 )
+
+target_compile_definitions(app PRIVATE IS_SPARKS)

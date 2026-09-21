@@ -4,6 +4,7 @@
 // ============================================================
 
 #include "yuitag_platform.h"
+#include "yuitag_device.h"
 #include "yuitag_buzzer.h"
 
 #include <zephyr/kernel.h>
@@ -89,17 +90,7 @@ uint8_t platform_read_battery(void)
         return 0;
     }
 
-    uint32_t battery_mv = (uint32_t)val;
-
-    // 根据预设电压阈值线性折算为百分比
-    if (battery_mv >= BATTERY_FULL_MV) {
-        return 100;
-    }
-    if (battery_mv <= BATTERY_EMPTY_MV) {
-        return 0;
-    }
-    return (uint8_t)(((battery_mv - BATTERY_EMPTY_MV) * 100U)
-                     / (BATTERY_FULL_MV - BATTERY_EMPTY_MV));
+    return yuitag_battery_mv_to_percent((uint32_t)val);
 }
 
 // ============================================================
