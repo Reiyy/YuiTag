@@ -18,7 +18,6 @@
 
 static YuiTagDevice *g_dev;
 static bool g_initialized = false;
-static bool g_ota_authorized = false;
 
 static struct k_work s_process_work;
 static struct k_timer s_periodic_timer;
@@ -101,18 +100,22 @@ void app_mark_initialized(void)
  * ------------------------------------------------------------ */
 void app_ota_authorize(void)
 {
-    g_ota_authorized = true;
+    if (g_dev) {
+        g_dev->otaAuthorized = true;
+    }
     platform_log("[OTA] Authorized");
     yuitag_ble_set_fast_conn_params();
 }
 
 void app_ota_deauthorize(void)
 {
-    g_ota_authorized = false;
+    if (g_dev) {
+        g_dev->otaAuthorized = false;
+    }
     platform_log("[OTA] Deauthorized");
 }
 
 bool app_is_ota_authorized(void)
 {
-    return g_ota_authorized;
+    return (g_dev && g_dev->otaAuthorized);
 }

@@ -33,6 +33,15 @@
 #define BATTERY_CHECK_INTERVAL_MS   86400000UL
 #define PERIODIC_CHECK_INTERVAL_MS  30000
 
+// ---- Connection parameters (Apple Accessory Design Guidelines) ----
+#define CONN_PARAM_DELAY_MS                 15000
+#define CONN_PARAM_INTERVAL_MIN_UNITS       48   // 60 ms (48 * 1.25ms)
+#define CONN_PARAM_INTERVAL_MAX_UNITS       72   // 90 ms (72 * 1.25ms)
+#define CONN_PARAM_LATENCY                  0
+#define CONN_PARAM_TIMEOUT_UNITS            400  // 4000 ms (400 * 10ms)
+#define CONN_PARAM_FAST_INTERVAL_MIN_UNITS  12   // 15 ms (12 * 1.25ms)
+#define CONN_PARAM_FAST_INTERVAL_MAX_UNITS  24   // 30 ms (24 * 1.25ms)
+
 // ---- Custom GATT service/characteristic UUID short codes ----
 // Full 128-bit base: 722Axxxx-8a74-432f-9055-7ed8a5584a11
 #define YUITAG_SVC_CORE             0xAA00

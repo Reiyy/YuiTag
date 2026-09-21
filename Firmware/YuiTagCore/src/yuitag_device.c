@@ -201,6 +201,7 @@ void yuitag_device_on_disconnected(YuiTagDevice *dev)
     }
 
 #ifndef IS_SPARKS
+    dev->otaAuthorized = false;
     if (!dev->isBound && yuitag_crypto_ecdh_ready()) {
         yuitag_crypto_ecdh_cleanup();
         dev->waitingVerify = false;
@@ -342,6 +343,7 @@ uint8_t yuitag_device_dispatch_cmd(YuiTagDevice *dev, uint8_t cmdId, uint8_t act
 #ifndef IS_SPARKS
     case CMD_OTA_AUTHORIZE:
         if (action == ACTION_CONFIRM) {
+            dev->otaAuthorized = true;
             platform_ota_authorize();
             return STATUS_SUCCESS;
         }
@@ -506,6 +508,7 @@ void yuitag_device_clear_binding(YuiTagDevice *dev)
     platform_storage_save_bool(NVM3_KEY_FINDMY_ENABLED, false);
 
 #ifndef IS_SPARKS
+    dev->otaAuthorized = false;
     platform_ota_deauthorize();
 #endif
 
@@ -519,6 +522,7 @@ void yuitag_device_abort_bind(YuiTagDevice *dev)
 
     yuitag_crypto_clear_aes_key();
 #ifndef IS_SPARKS
+    dev->otaAuthorized = false;
     yuitag_crypto_ecdh_cleanup();
     platform_ota_deauthorize();
 #endif
@@ -764,7 +768,7 @@ void yuitag_device_process_events(YuiTagDevice *dev)
     // 4. pending adv refresh
     if (dev->pendingAdvRefresh) {
         dev->pendingAdvRefresh = false;
-        platform_ble_update_advertising(dev, false);
+        platform_ble_update_advertising(dev, true);
     }
 
     // 5. adv failed retry
@@ -815,4 +819,147 @@ void yuitag_device_process_events(YuiTagDevice *dev)
         dev->pendingParamSave = false;
         yuitag_device_persist_params(dev);
     }
+}
+
+void yuitag_device_handle_cmd_write(YuiTagDevice *dev, const uint8_t *inData, size_t inLen, yuitag_response_t *resp)
+{
+    if (resp) {
+        memset(resp, 0, sizeof(yuitag_response_t));
+    }
+    if (!dev || !inData || inLen == 0 || !resp) {
+        return;
+    }
+
+    // 阶段 1: 绑定确认密文验证
+    if (dev->waitingVerify && yuitag_crypto_has_aes_key() && !dev->isBound) {
+        platform_log("[VERIFY] Received encrypted verify data (%d bytes)", inLen);
+        if (yuitag_device_bind_verify(dev, inData, inLen)) {
+            resp->channel = YUITAG_NOTIFY_CMD;
+            resp->data[0] = BIND_VERIFY_OK;
+            resp->len = 1;
+            dev->pendingAdvRefresh = true;
+            dev->pendingConnParamReset = true;
+        } else {
+            resp->channel = YUITAG_NOTIFY_CMD;
+            resp->data[0] = BIND_VERIFY_FAIL;
+            resp->len = 1;
+            dev->pendingBindAbort = true;
+        }
+        return;
+    }
+
+    // 未绑定状态拒绝常规控制指令
+    if (!dev->isBound) {
+        platform_log("[CMD] Rejected: unbound");
+        resp->channel = YUITAG_NOTIFY_CMD;
+        resp->data[0] = 0x00;
+        resp->data[1] = STATUS_FAILED;
+        resp->len = 2;
+        return;
+    }
+
+    // 阶段 2: 常规加密业务指令
+    uint8_t cmdId = 0, action = 0;
+    uint8_t plain[CMD_DECRYPT_BUF_MAX_LEN];
+    uint8_t status = yuitag_device_decrypt_validate(dev, inData, inLen, &cmdId, &action, plain);
+    if (status != STATUS_SUCCESS) {
+        resp->channel = YUITAG_NOTIFY_CMD;
+        resp->data[0] = 0x00;
+        resp->data[1] = status;
+        resp->len = 2;
+        return;
+    }
+
+    if (cmdId == CMD_BIND_VERIFY) {
+        resp->channel = YUITAG_NOTIFY_NONE;
+        resp->len = 0;
+        return;
+    }
+
+#ifndef IS_SPARKS
+    if (cmdId == CMD_FINDMY_TIME_SYNC) {
+        uint8_t syncStatus = yuitag_device_findmy_handle_time_sync(plain, inLen);
+        resp->channel = YUITAG_NOTIFY_CMD;
+        resp->data[0] = 0x00;
+        resp->data[1] = syncStatus;
+        resp->len = 2;
+        return;
+    }
+#endif
+
+    status = yuitag_device_dispatch_cmd(dev, cmdId, action);
+
+#ifndef IS_SPARKS
+    if (cmdId == CMD_FINDMY_STATUS && status == STATUS_SUCCESS) {
+        resp->channel = YUITAG_NOTIFY_PARAM;
+        resp->data[0] = CMD_FINDMY_STATUS;
+        resp->data[1] = yuitag_findmy_is_time_synced() ? 1 : 0;
+        uint32_t curTime = yuitag_findmy_get_current_time();
+        uint32_t curPeriod = yuitag_findmy_get_current_period();
+        resp->data[2] = (uint8_t)(curTime & 0xFF);
+        resp->data[3] = (uint8_t)((curTime >> 8) & 0xFF);
+        resp->data[4] = (uint8_t)((curTime >> 16) & 0xFF);
+        resp->data[5] = (uint8_t)((curTime >> 24) & 0xFF);
+        resp->data[6] = (uint8_t)(curPeriod & 0xFF);
+        resp->data[7] = (uint8_t)((curPeriod >> 8) & 0xFF);
+        resp->data[8] = (uint8_t)((curPeriod >> 16) & 0xFF);
+        resp->data[9] = (uint8_t)((curPeriod >> 24) & 0xFF);
+        resp->len = 10;
+        platform_log("[FINDMY] Status sent: synced=%d time=%lu period=%lu",
+                     resp->data[1], curTime, curPeriod);
+        return;
+    }
+#endif
+
+    // 心跳指令无需回包
+    if (cmdId == CMD_HEARTBEAT && status == STATUS_NO_REPLY) {
+        resp->channel = YUITAG_NOTIFY_NONE;
+        resp->len = 0;
+        return;
+    }
+
+    resp->channel = YUITAG_NOTIFY_CMD;
+    resp->data[0] = 0x00;
+    resp->data[1] = status;
+    resp->len = 2;
+
+    platform_log("[CMD] cmdId=0x%02X action=0x%02X -> status=0x%02X",
+                 cmdId, action, status);
+}
+
+void yuitag_device_handle_param_write(YuiTagDevice *dev, const uint8_t *inData, size_t inLen, yuitag_response_t *resp)
+{
+    if (resp) {
+        memset(resp, 0, sizeof(yuitag_response_t));
+    }
+    if (!dev || !inData || inLen == 0 || !resp) {
+        return;
+    }
+
+    if (!dev->isBound) {
+        platform_log("[PARAM] Rejected: unbound");
+        resp->channel = YUITAG_NOTIFY_PARAM;
+        resp->data[0] = 0x00;
+        resp->data[1] = STATUS_FAILED;
+        resp->len = 2;
+        return;
+    }
+
+    uint8_t status = yuitag_device_param_write(dev, inData, inLen);
+    resp->channel = YUITAG_NOTIFY_PARAM;
+    resp->data[0] = 0x00;
+    resp->data[1] = status;
+    resp->len = 2;
+}
+
+uint8_t yuitag_battery_mv_to_percent(uint32_t battery_mv)
+{
+    if (battery_mv >= BATTERY_FULL_MV) {
+        return 100;
+    }
+    if (battery_mv <= BATTERY_EMPTY_MV) {
+        return 0;
+    }
+    return (uint8_t)(((battery_mv - BATTERY_EMPTY_MV) * 100U)
+                     / (BATTERY_FULL_MV - BATTERY_EMPTY_MV));
 }

@@ -193,10 +193,21 @@ static void send_notify(uint16_t characteristic, const uint8_t *data, size_t len
     sl_bt_gatt_server_send_notification(s_connection, characteristic, len, data);
 }
 
-static void notify_status(uint16_t characteristic, uint8_t status)
+static void send_notify_by_ch(yuitag_notify_ch_t ch, const uint8_t *data, size_t len)
 {
-    uint8_t resp[2] = { 0x00, status };
-    send_notify(characteristic, resp, 2);
+    switch (ch) {
+    case YUITAG_NOTIFY_BIND:
+        send_notify(gattdb_bind_channel, data, len);
+        break;
+    case YUITAG_NOTIFY_CMD:
+        send_notify(gattdb_cmd_channel, data, len);
+        break;
+    case YUITAG_NOTIFY_PARAM:
+        send_notify(gattdb_param_channel, data, len);
+        break;
+    default:
+        break;
+    }
 }
 
 /* --- GATT 写入事件处理 --- */
@@ -241,126 +252,39 @@ static void handle_bind_channel_write(YuiTagDevice *dev,
 static void handle_cmd_channel_write(YuiTagDevice *dev,
                                      const uint8_t *data, size_t len)
 {
-    // 阶段 1: 绑定确认密文验证
-    if (dev->waitingVerify && yuitag_crypto_has_aes_key() && !dev->isBound) {
-        platform_log("[VERIFY] Received encrypted verify data (%d bytes)", len);
+    yuitag_response_t resp = {0};
+    yuitag_device_handle_cmd_write(dev, data, len, &resp);
 
-        if (yuitag_device_bind_verify(dev, data, len)) {
-            uint8_t resp = BIND_VERIFY_OK;
-            send_notify(gattdb_cmd_channel, &resp, 1);
-            yuitag_ble_update_advertising(dev, true);
-            yuitag_ble_update_dis_values(dev);
-            app_proceed();
-        } else {
-            uint8_t resp = BIND_VERIFY_FAIL;
-            send_notify(gattdb_cmd_channel, &resp, 1);
-            dev->pendingBindAbort = true;
-            app_proceed();
-        }
-        return;
+    if (resp.channel != YUITAG_NOTIFY_NONE) {
+        send_notify_by_ch(resp.channel, resp.data, resp.len);
     }
 
-    // 未绑定状态拒绝常规控制指令
-    if (!dev->isBound) {
-        platform_log("[CMD] Rejected: unbound");
-        notify_status(gattdb_cmd_channel, STATUS_FAILED);
-        return;
+    if (dev->pendingConnParamReset) {
+        dev->pendingConnParamReset = false;
+        yuitag_ble_update_dis_values(dev);
+        s_conn_param_updated = false;
+        s_conn_start_ms = platform_millis();
     }
 
-    // 阶段 2: 常规加密业务指令
-    uint8_t cmdId = 0, action = 0;
-    uint8_t plain[CMD_DECRYPT_BUF_MAX_LEN];
-    uint8_t status = yuitag_device_decrypt_validate(dev, data, len, &cmdId, &action, plain);
-    if (status != STATUS_SUCCESS) {
-        notify_status(gattdb_cmd_channel, status);
-        return;
-    }
-
-    if (cmdId == CMD_BIND_VERIFY) {
-        return;
-    }
-
-#ifndef IS_SPARKS
-    if (cmdId == CMD_FINDMY_TIME_SYNC) {
-        uint8_t syncStatus = yuitag_device_findmy_handle_time_sync(plain, len);
-        notify_status(gattdb_cmd_channel, syncStatus);
-        if (syncStatus == STATUS_SUCCESS) {
-            app_proceed();
-        }
-        return;
-    }
-#endif
-
-    status = yuitag_device_dispatch_cmd(dev, cmdId, action);
-
-#ifndef IS_SPARKS
-    if (cmdId == CMD_FINDMY_STATUS && status == STATUS_SUCCESS) {
-        uint8_t notifyBuf[10];
-        notifyBuf[0] = CMD_FINDMY_STATUS;
-        notifyBuf[1] = yuitag_findmy_is_time_synced() ? 1 : 0;
-        uint32_t curTime = yuitag_findmy_get_current_time();
-        uint32_t curPeriod = yuitag_findmy_get_current_period();
-        notifyBuf[2] = (uint8_t)(curTime & 0xFF);
-        notifyBuf[3] = (uint8_t)((curTime >> 8) & 0xFF);
-        notifyBuf[4] = (uint8_t)((curTime >> 16) & 0xFF);
-        notifyBuf[5] = (uint8_t)((curTime >> 24) & 0xFF);
-        notifyBuf[6] = (uint8_t)(curPeriod & 0xFF);
-        notifyBuf[7] = (uint8_t)((curPeriod >> 8) & 0xFF);
-        notifyBuf[8] = (uint8_t)((curPeriod >> 16) & 0xFF);
-        notifyBuf[9] = (uint8_t)((curPeriod >> 24) & 0xFF);
-        send_notify(gattdb_param_channel, notifyBuf, sizeof(notifyBuf));
-        platform_log("[FINDMY] Status sent: synced=%d time=%lu period=%lu",
-                     notifyBuf[1], curTime, curPeriod);
-        return;
-    }
-#endif
-
-    // 心跳指令无需回包，仅唤醒主循环刷新超时
-    if (cmdId == CMD_HEARTBEAT && status == STATUS_NO_REPLY) {
+    if (dev->pendingUnbindClear || dev->pendingAdvRefresh || dev->pendingBindAbort) {
         app_proceed();
-        return;
     }
-
-    notify_status(gattdb_cmd_channel, status);
-
-    // 解绑操作延迟至主循环处理，避免在 BLE 回调中进行 NVM3 操作与广播重启
-    if (dev->pendingUnbindClear) {
-        app_proceed();
-        return;
-    }
-
-    // 广播参数或状态变更时刷新广播
-    if (dev->pendingAdvRefresh) {
-        dev->pendingAdvRefresh = false;
-        yuitag_ble_update_advertising(dev, true);
-    }
-
-    platform_log("[CMD] cmdId=0x%02X action=0x%02X -> status=0x%02X",
-                 cmdId, action, status);
 }
 
 static void handle_param_channel_write(YuiTagDevice *dev,
                                        const uint8_t *data, size_t len)
 {
-    if (!dev->isBound) {
-        platform_log("[PARAM] Rejected: unbound");
-        notify_status(gattdb_param_channel, STATUS_FAILED);
-        return;
+    yuitag_response_t resp = {0};
+    yuitag_device_handle_param_write(dev, data, len, &resp);
+
+    if (resp.channel != YUITAG_NOTIFY_NONE) {
+        send_notify_by_ch(resp.channel, resp.data, resp.len);
     }
 
-    uint8_t status = yuitag_device_param_write(dev, data, len);
-    notify_status(gattdb_param_channel, status);
-
-    if (status == STATUS_SUCCESS) {
-        if (dev->pendingParamSave) {
-            app_proceed();
-        }
-        if (dev->pendingAdvRefresh) {
-            dev->pendingAdvRefresh = false;
-            yuitag_ble_update_advertising(dev, true);
-        }
-        yuitag_ble_update_param_value(dev);
+    if (dev->pendingParamSave || dev->pendingAdvRefresh) {
+        app_proceed();
     }
+    yuitag_ble_update_param_value(dev);
 }
 
 /* --- GATT 数据库维护与特征值写入 --- */
@@ -466,7 +390,6 @@ void yuitag_ble_on_event(sl_bt_msg_t *evt, YuiTagDevice *dev)
         s_cccd_cmd_enabled  = false;
         s_cccd_param_enabled = false;
         s_mtu = 23;
-        app_ota_deauthorize();
         yuitag_device_on_disconnected(dev);
 
         // 断开后重启常规可连接广播
@@ -535,7 +458,7 @@ void yuitag_ble_try_conn_param_update(YuiTagDevice *dev)
     }
 
     // 预留 15.0s 充裕窗口给服务发现与初始交互，完成后再切入平衡降速参数
-    if (platform_millis() - s_conn_start_ms < 15000) {
+    if (platform_millis() - s_conn_start_ms < CONN_PARAM_DELAY_MS) {
         return;
     }
 
@@ -550,10 +473,10 @@ void yuitag_ble_try_conn_param_update(YuiTagDevice *dev)
      * 3. 监控超时 4000ms (400 * 10ms)
      */
     sl_bt_connection_set_parameters(s_connection,
-        48,
-        72,
-        0,
-        400,
+        CONN_PARAM_INTERVAL_MIN_UNITS,
+        CONN_PARAM_INTERVAL_MAX_UNITS,
+        CONN_PARAM_LATENCY,
+        CONN_PARAM_TIMEOUT_UNITS,
         0, 0);
 
     s_conn_param_updated = true;

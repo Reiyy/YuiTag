@@ -10,6 +10,19 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+typedef enum {
+    YUITAG_NOTIFY_NONE = 0,
+    YUITAG_NOTIFY_BIND,
+    YUITAG_NOTIFY_CMD,
+    YUITAG_NOTIFY_PARAM,
+} yuitag_notify_ch_t;
+
+typedef struct {
+    yuitag_notify_ch_t channel;
+    uint8_t data[16];
+    uint8_t len;
+} yuitag_response_t;
+
 typedef struct {
     // ---- 设备标识 ----
     uint8_t  uid[UID_LEN];
@@ -26,6 +39,9 @@ typedef struct {
     bool     ringActive;
     bool     findModeActive;
     bool     findmyEnabled;
+#ifndef IS_SPARKS
+    bool     otaAuthorized;
+#endif
     uint16_t advInterval;
     uint16_t findModeInterval;
     uint16_t savedAdvInterval;
@@ -43,6 +59,7 @@ typedef struct {
     bool     pendingPwrCycleClear;
     bool     pendingParamSave;
     bool     pendingAdvRefresh;
+    bool     pendingConnParamReset;
 #ifndef IS_SPARKS
     bool     pendingFindmyChange;
 #endif
@@ -90,5 +107,11 @@ bool    yuitag_device_findmy_period_config(const uint8_t *decryptedPayload, size
 uint8_t yuitag_device_findmy_handle_time_sync(const uint8_t *plain, size_t len);
 #endif
 
+// ---- GATT 通用指令与参数处理流水线 ----
+void    yuitag_device_handle_cmd_write(YuiTagDevice *dev, const uint8_t *inData, size_t inLen, yuitag_response_t *resp);
+void    yuitag_device_handle_param_write(YuiTagDevice *dev, const uint8_t *inData, size_t inLen, yuitag_response_t *resp);
+
+// ---- 电池电量转换模型 ----
+uint8_t yuitag_battery_mv_to_percent(uint32_t battery_mv);
 
 #endif // YUITAG_DEVICE_H

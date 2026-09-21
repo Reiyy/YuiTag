@@ -25,9 +25,6 @@
 static YuiTagDevice g_dev;
 static bool         g_initialized = false;
 
-// OTA DFU 授权标志 (已绑定用户发送 0x6F 指令验证后解锁)
-static bool         g_ota_authorized = false;
-
 // 连续快速上电出厂复位触发标记 (在延时前检测计数)
 static bool         s_pending_factory_reset = false;
 
@@ -123,9 +120,9 @@ sl_bt_in_place_ota_dfu_security_sts_t sl_bt_in_place_ota_dfu_security_status(
     (void)bonding;
 
     platform_log("[OTA-SEC] isBound=%d auth=%d bonding=%d",
-                 g_dev.isBound, g_ota_authorized, bonding);
+                 g_dev.isBound, g_dev.otaAuthorized, bonding);
 
-    if (g_dev.isBound && g_ota_authorized) {
+    if (g_dev.isBound && g_dev.otaAuthorized) {
         platform_log("[OTA-SEC] ACCEPT");
         return SL_BT_IN_PLACE_OTA_DFU_SECURITY_ACCEPT;
     }
@@ -136,16 +133,16 @@ sl_bt_in_place_ota_dfu_security_sts_t sl_bt_in_place_ota_dfu_security_status(
 
 bool app_is_ota_authorized(void)
 {
-    return g_ota_authorized;
+    return g_dev.otaAuthorized;
 }
 
 void app_ota_authorize(void)
 {
-    g_ota_authorized = true;
+    g_dev.otaAuthorized = true;
     platform_log("[OTA] Authorized");
 }
 
 void app_ota_deauthorize(void)
 {
-    g_ota_authorized = false;
+    g_dev.otaAuthorized = false;
 }

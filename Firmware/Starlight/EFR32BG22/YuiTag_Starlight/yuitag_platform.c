@@ -4,6 +4,7 @@
  */
 
 #include "yuitag_platform.h"
+#include "yuitag_device.h"
 #include "yuitag_buzzer.h"
 
 #include "sl_sleeptimer.h"
@@ -152,15 +153,7 @@ uint8_t platform_read_battery(void)
     uint32_t battery_mv = ((4U * result.data * s_iadc_vref_mv) + (ADC_RESULT_MAX / 2U))
                           / ADC_RESULT_MAX;
 
-    // 线性映射估算电量百分比
-    if (battery_mv >= BATTERY_FULL_MV) {
-        return 100;
-    }
-    if (battery_mv <= BATTERY_EMPTY_MV) {
-        return 0;
-    }
-    return (uint8_t)(((battery_mv - BATTERY_EMPTY_MV) * 100U)
-                     / (BATTERY_FULL_MV - BATTERY_EMPTY_MV));
+    return yuitag_battery_mv_to_percent(battery_mv);
 }
 
 /* --- 芯片出厂 MAC 地址 --- */

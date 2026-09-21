@@ -119,10 +119,21 @@ static void notify_by_uuid(const struct bt_uuid *uuid,
     bt_gatt_notify_cb(g_conn, &params);
 }
 
-static void notify_status(const struct bt_uuid *uuid, uint8_t status)
+static void send_notify_by_ch(yuitag_notify_ch_t ch, const uint8_t *data, size_t len)
 {
-    uint8_t resp[2] = { 0x00, status };
-    notify_by_uuid(uuid, resp, 2);
+    switch (ch) {
+    case YUITAG_NOTIFY_BIND:
+        notify_by_uuid(YUITAG_UUID_BIND, data, len);
+        break;
+    case YUITAG_NOTIFY_CMD:
+        notify_by_uuid(YUITAG_UUID_CMD, data, len);
+        break;
+    case YUITAG_NOTIFY_PARAM:
+        notify_by_uuid(YUITAG_UUID_PARAM, data, len);
+        break;
+    default:
+        break;
+    }
 }
 
 // ============================================================
@@ -224,97 +235,25 @@ static ssize_t write_cmd(struct bt_conn *conn, const struct bt_gatt_attr *attr,
                          const void *buf, uint16_t len, uint16_t offset, uint8_t flags)
 {
     (void)conn; (void)attr; (void)offset; (void)flags;
-    const uint8_t *data = buf;
 
-    if (g_dev->waitingVerify && yuitag_crypto_has_aes_key() && !g_dev->isBound) {
-        platform_log("[VERIFY] Received encrypted verify data (%d bytes)", len);
-        if (yuitag_device_bind_verify(g_dev, data, len)) {
-            uint8_t resp = BIND_VERIFY_OK;
-            notify_by_uuid(YUITAG_UUID_CMD, &resp, 1);
-            // 延后广播刷新至主循环工作队列执行 (避免在 BLE RX 线程执行阻塞式 HCI 操作)
-            g_dev->pendingAdvRefresh = true;
-            yuitag_ble_update_dis_values(g_dev);
-            g_conn_param_updated = false;
-            k_work_reschedule(&s_conn_param_work, K_MSEC(15000));
-            app_proceed();
-        } else {
-            uint8_t resp = BIND_VERIFY_FAIL;
-            notify_by_uuid(YUITAG_UUID_CMD, &resp, 1);
-            g_dev->pendingBindAbort = true;
-            app_proceed();
-        }
-        return len;
+    yuitag_response_t resp = {0};
+    yuitag_device_handle_cmd_write(g_dev, buf, len, &resp);
+
+    if (resp.channel != YUITAG_NOTIFY_NONE) {
+        send_notify_by_ch(resp.channel, resp.data, resp.len);
     }
 
-    if (!g_dev->isBound) {
-        platform_log("[CMD] Rejected: unbound");
-        notify_status(YUITAG_UUID_CMD, STATUS_FAILED);
-        return len;
+    if (g_dev->pendingConnParamReset) {
+        g_dev->pendingConnParamReset = false;
+        yuitag_ble_update_dis_values(g_dev);
+        g_conn_param_updated = false;
+        k_work_reschedule(&s_conn_param_work, K_MSEC(CONN_PARAM_DELAY_MS));
     }
 
-    uint8_t cmdId = 0, action = 0;
-    uint8_t plain[CMD_DECRYPT_BUF_MAX_LEN];
-    uint8_t status = yuitag_device_decrypt_validate(g_dev, data, len, &cmdId, &action, plain);
-    if (status != STATUS_SUCCESS) {
-        notify_status(YUITAG_UUID_CMD, status);
-        return len;
-    }
-
-    if (cmdId == CMD_BIND_VERIFY) {
-        return len;
-    }
-
-#ifndef IS_SPARKS
-    if (cmdId == CMD_FINDMY_TIME_SYNC) {
-        uint8_t syncStatus = yuitag_device_findmy_handle_time_sync(plain, len);
-        notify_status(YUITAG_UUID_CMD, syncStatus);
-        if (syncStatus == STATUS_SUCCESS) {
-            app_proceed();
-        }
-        return len;
-    }
-#endif
-
-    status = yuitag_device_dispatch_cmd(g_dev, cmdId, action);
-
-#ifndef IS_SPARKS
-    if (cmdId == CMD_FINDMY_STATUS && status == STATUS_SUCCESS) {
-        uint8_t notifyBuf[10];
-        notifyBuf[0] = CMD_FINDMY_STATUS;
-        notifyBuf[1] = yuitag_findmy_is_time_synced() ? 1 : 0;
-        uint32_t curTime = yuitag_findmy_get_current_time();
-        uint32_t curPeriod = yuitag_findmy_get_current_period();
-        notifyBuf[2] = (uint8_t)(curTime & 0xFF);
-        notifyBuf[3] = (uint8_t)((curTime >> 8) & 0xFF);
-        notifyBuf[4] = (uint8_t)((curTime >> 16) & 0xFF);
-        notifyBuf[5] = (uint8_t)((curTime >> 24) & 0xFF);
-        notifyBuf[6] = (uint8_t)(curPeriod & 0xFF);
-        notifyBuf[7] = (uint8_t)((curPeriod >> 8) & 0xFF);
-        notifyBuf[8] = (uint8_t)((curPeriod >> 16) & 0xFF);
-        notifyBuf[9] = (uint8_t)((curPeriod >> 24) & 0xFF);
-        notify_by_uuid(YUITAG_UUID_PARAM, notifyBuf, sizeof(notifyBuf));
-        return len;
-    }
-#endif
-
-    if (cmdId == CMD_HEARTBEAT && status == STATUS_NO_REPLY) {
-        app_proceed();
-        return len;
-    }
-
-    notify_status(YUITAG_UUID_CMD, status);
-
-    if (g_dev->pendingUnbindClear) {
-        app_proceed();
-        return len;
-    }
-
-    if (g_dev->pendingAdvRefresh) {
+    if (g_dev->pendingUnbindClear || g_dev->pendingAdvRefresh || g_dev->pendingBindAbort) {
         app_proceed();
     }
 
-    platform_log("[CMD] cmdId=0x%02X action=0x%02X -> status=0x%02X",
-                 cmdId, action, status);
     return len;
 }
 
@@ -323,21 +262,18 @@ static ssize_t write_param(struct bt_conn *conn, const struct bt_gatt_attr *attr
 {
     (void)conn; (void)attr; (void)offset; (void)flags;
 
-    if (!g_dev->isBound) {
-        platform_log("[PARAM] Rejected: unbound");
-        notify_status(YUITAG_UUID_PARAM, STATUS_FAILED);
-        return len;
+    yuitag_response_t resp = {0};
+    yuitag_device_handle_param_write(g_dev, buf, len, &resp);
+
+    if (resp.channel != YUITAG_NOTIFY_NONE) {
+        send_notify_by_ch(resp.channel, resp.data, resp.len);
     }
 
-    uint8_t status = yuitag_device_param_write(g_dev, buf, len);
-    notify_status(YUITAG_UUID_PARAM, status);
-
-    if (status == STATUS_SUCCESS) {
-        if (g_dev->pendingParamSave) {
-            app_proceed();
-        }
-        yuitag_ble_update_param_value(g_dev);
+    if (g_dev->pendingParamSave || g_dev->pendingAdvRefresh) {
+        app_proceed();
     }
+    yuitag_ble_update_param_value(g_dev);
+
     return len;
 }
 
@@ -542,7 +478,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 
     /* 已绑定状态下，延时 15.0 秒申请温和降速连接参数 (预留充裕窗口给服务发现与 OTA 授权，授权后不降速) */
     if (g_dev && g_dev->isBound) {
-        k_work_reschedule(&s_conn_param_work, K_MSEC(15000));
+        k_work_reschedule(&s_conn_param_work, K_MSEC(CONN_PARAM_DELAY_MS));
     }
 
     /* 连接建立后重新启动不可连接广播 (供手机端跟踪 RSSI)；转交主循环处理以保证安全 */
@@ -564,7 +500,6 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
     g_connected = false;
     g_cccd_bind = g_cccd_cmd = g_cccd_param = false;
 
-    app_ota_deauthorize();
     yuitag_device_on_disconnected(g_dev);
 
     /* 断开后通知主循环恢复正常可连接广播 */
@@ -597,7 +532,7 @@ void yuitag_ble_try_conn_param_update(YuiTagDevice *dev)
     if (!dev || !dev->isBound) {
         return;
     }
-    if (platform_millis() - g_conn_start_ms < 2000) {
+    if (platform_millis() - g_conn_start_ms < CONN_PARAM_DELAY_MS) {
         return;
     }
     if (app_is_ota_authorized()) {
@@ -610,10 +545,10 @@ void yuitag_ble_try_conn_param_update(YuiTagDevice *dev)
      * 3. 监控超时 4000ms (400 * 10ms)
      */
     struct bt_le_conn_param param = {
-        .interval_min = 48,  /* 60 ms */
-        .interval_max = 72,  /* 90 ms */
-        .latency = 0,
-        .timeout = 400,      /* 4000 ms */
+        .interval_min = CONN_PARAM_INTERVAL_MIN_UNITS,
+        .interval_max = CONN_PARAM_INTERVAL_MAX_UNITS,
+        .latency = CONN_PARAM_LATENCY,
+        .timeout = CONN_PARAM_TIMEOUT_UNITS,
     };
     int err = bt_conn_le_param_update(g_conn, &param);
     if (err == 0) {
@@ -631,10 +566,10 @@ void yuitag_ble_set_fast_conn_params(void)
     }
     /* OTA 高速传输参数: 15ms~30ms, 延迟 0, 超时 4s */
     struct bt_le_conn_param param = {
-        .interval_min = 12,  /* 15 ms (12 * 1.25ms) */
-        .interval_max = 24,  /* 30 ms (24 * 1.25ms) */
-        .latency = 0,
-        .timeout = 400,      /* 4000 ms */
+        .interval_min = CONN_PARAM_FAST_INTERVAL_MIN_UNITS,
+        .interval_max = CONN_PARAM_FAST_INTERVAL_MAX_UNITS,
+        .latency = CONN_PARAM_LATENCY,
+        .timeout = CONN_PARAM_TIMEOUT_UNITS,
     };
     int err = bt_conn_le_param_update(g_conn, &param);
     if (err == 0) {
