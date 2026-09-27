@@ -30,9 +30,8 @@ desktop.ini
 *.log
 
 # IDE & 编辑器配置
+.vscode/
 **/.idea/
-**/.vscode/*
-!**/.vscode/settings.json
 *.iml
 
 # =======================================================

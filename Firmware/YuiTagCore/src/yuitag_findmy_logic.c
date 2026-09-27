@@ -446,6 +446,9 @@ void yuitag_findmy_disable(void)
 
 void yuitag_findmy_init(void)
 {
+    s_advertising = false;
+    s_key_valid = false;
+    s_cached_period = 0;
     load_or_generate_seed();
     load_time_state();
     load_period_config();

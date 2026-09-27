@@ -88,6 +88,9 @@ void yuitag_crypto_make_system_id(const uint8_t mac[6], uint8_t out[8])
 // ============================================================
 uint8_t yuitag_crypto_crc8(const uint8_t *data, size_t len)
 {
+    if (!data || len == 0) {
+        return 0x00;
+    }
     uint8_t crc = 0x00;
     while (len--) {
         crc ^= *data++;

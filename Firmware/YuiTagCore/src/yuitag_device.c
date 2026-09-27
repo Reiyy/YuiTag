@@ -51,12 +51,22 @@ void yuitag_device_init(YuiTagDevice *dev, const uint8_t mac[6])
     }
     dev->findModeInterval = platform_storage_load_u16(NVM3_KEY_FIND_INTERVAL, ADV_INTERVAL_FIND_MS);
 
-    // Self-healing check
-    if (dev->isBound && dev->advInterval == dev->findModeInterval && dev->advInterval < ADV_INTERVAL_NORMAL_MS) {
+    // Self-healing check: 范围异常或寻物残留纠偏
+    if (dev->advInterval < ADV_INTERVAL_MIN_MS || dev->advInterval > ADV_INTERVAL_MAX_MS) {
+        platform_log("[INIT] Adv interval (%dms) out of bounds, healing to default", dev->advInterval);
+        dev->advInterval = dev->isBound ? ADV_INTERVAL_NORMAL_MS : ADV_INTERVAL_UNBOUND_MS;
+        platform_storage_save_u16(NVM3_KEY_ADV_INTERVAL, dev->advInterval);
+    } else if (dev->isBound && dev->advInterval == dev->findModeInterval && dev->advInterval < ADV_INTERVAL_NORMAL_MS) {
         platform_log("[INIT] Adv interval (%dms) corrupted by find mode, healing to %dms",
                      dev->advInterval, ADV_INTERVAL_NORMAL_MS);
         dev->advInterval = ADV_INTERVAL_NORMAL_MS;
         platform_storage_save_u16(NVM3_KEY_ADV_INTERVAL, dev->advInterval);
+    }
+    // Self-healing check: findModeInterval 范围异常纠偏
+    if (dev->findModeInterval < ADV_INTERVAL_MIN_MS || dev->findModeInterval > ADV_INTERVAL_MAX_MS) {
+        platform_log("[INIT] Find interval (%dms) out of bounds, healing to default", dev->findModeInterval);
+        dev->findModeInterval = ADV_INTERVAL_FIND_MS;
+        platform_storage_save_u16(NVM3_KEY_FIND_INTERVAL, dev->findModeInterval);
     }
     dev->savedAdvInterval = dev->advInterval;
 
@@ -73,6 +83,11 @@ void yuitag_device_init(YuiTagDevice *dev, const uint8_t mac[6])
             yuitag_crypto_set_aes_key(keyBuf);
         } else {
             dev->isBound = false;
+            dev->advInterval = ADV_INTERVAL_UNBOUND_MS;
+            dev->savedAdvInterval = dev->advInterval;
+            yuitag_crypto_clear_aes_key();
+            platform_storage_save_bool(NVM3_KEY_IS_BOUND, false);
+            platform_storage_save_u16(NVM3_KEY_ADV_INTERVAL, dev->advInterval);
             platform_log("[INIT] AES key corrupt, reverting to UNBOUND");
         }
     }
