@@ -1,5 +1,12 @@
 package com.reiyy.yuitag.ui.components
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -19,6 +27,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TravelExplore
@@ -39,6 +48,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -221,7 +232,10 @@ fun DeviceDetailContent(
                         )
                     }
                     Spacer(Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Icon(Icons.Default.BatteryFull, null, Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.width(4.dp))
@@ -236,6 +250,47 @@ fun DeviceDetailContent(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        if (device.findmyEnabled == true) {
+                            Spacer(Modifier.weight(1f))
+                            val isQuerying = uiState.deviceQueryingUids.contains(device.uid)
+                            val rotation = if (isQuerying) {
+                                val infiniteTransition = rememberInfiniteTransition(label = "query_rotation")
+                                val angle by infiniteTransition.animateFloat(
+                                    initialValue = 0f,
+                                    targetValue = 360f,
+                                    animationSpec = infiniteRepeatable(
+                                        animation = tween(durationMillis = 1000, easing = LinearEasing),
+                                        repeatMode = RepeatMode.Restart
+                                    ),
+                                    label = "query_angle"
+                                )
+                                angle
+                            } else {
+                                0f
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clip(CircleShape)
+                                    .clickable(enabled = !isQuerying) {
+                                        viewModel.triggerFindMyQuery(device.uid)
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = if (isQuerying) "更新中..." else "更新位置",
+                                    modifier = Modifier
+                                        .size(14.dp)
+                                        .graphicsLayer { rotationZ = rotation },
+                                    tint = if (isQuerying)
+                                        MaterialTheme.colorScheme.primary
+                                    else
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -282,64 +337,43 @@ fun DeviceDetailContent(
                 }
             }
 
-            // 更新位置按钮（仅 Find My 启用时显示）
-            val isQuerying = uiState.deviceQueryingUids.contains(device.uid)
+            // 位置历史与轨迹按钮（仅 Find My 启用时显示）
             if (device.findmyEnabled == true) {
-                ActionCard(
-                    icon = Icons.Default.MyLocation,
-                    iconTint = if (isQuerying) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
-                    containerColor = if (isQuerying)
-                        MaterialTheme.colorScheme.surfaceVariant
-                    else
-                        MaterialTheme.colorScheme.primaryContainer,
-                    onClick = when {
-                        isQuerying -> null
-                        else -> { { viewModel.triggerFindMyQuery(device.uid) } }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    ActionCard(
+                        icon = Icons.Default.History,
+                        iconTint = MaterialTheme.colorScheme.tertiary,
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        onClick = { onNavigateToLocationHistory(device.uid) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "位置历史",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
                     }
-                ) {
-                    Text(
-                        text = if (isQuerying) "查询中..." else "更新位置",
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = if (isQuerying) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
 
-            // 位置历史按钮（仅 Find My 启用时显示）
-            if (device.findmyEnabled == true) {
-                ActionCard(
-                    icon = Icons.Default.History,
-                    iconTint = MaterialTheme.colorScheme.tertiary,
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                    onClick = { onNavigateToLocationHistory(device.uid) }
-                ) {
-                    Text(
-                        text = "位置历史",
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.tertiary
-                    )
-                }
-            }
-
-            // 轨迹按钮（仅 Find My 启用时显示）
-            if (device.findmyEnabled == true) {
-                ActionCard(
-                    icon = Icons.Default.Route,
-                    iconTint = MaterialTheme.colorScheme.secondary,
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    onClick = { onNavigateToTrajectory(device.uid) }
-                ) {
-                    Text(
-                        text = "轨迹",
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.secondary
-                    )
+                    ActionCard(
+                        icon = Icons.Default.Route,
+                        iconTint = MaterialTheme.colorScheme.secondary,
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        onClick = { onNavigateToTrajectory(device.uid) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "轨迹",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
                 }
             }
 
