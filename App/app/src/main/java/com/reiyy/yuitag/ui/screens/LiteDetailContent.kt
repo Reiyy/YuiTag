@@ -16,15 +16,24 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BatteryFull
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MyLocation
+import android.Manifest
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import com.reiyy.yuitag.util.hasNotificationPermission
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TravelExplore
+import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -65,7 +74,16 @@ fun LiteDetailContent(
     val batteryPercent = uiState.deviceBatteries[device.uid] ?: device.battery
     val connectionState = uiState.deviceConnectionStates[device.uid] ?: DeviceConnectionState.OFFLINE
     val healthState = uiState.deviceHealthStates[device.uid] ?: DeviceHealthState.JUDGING
+    val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (!isGranted) {
+            Toast.makeText(context, "未授予通知权限，遗落报警可能无法在锁屏或后台弹出提示", Toast.LENGTH_LONG).show()
+        }
+    }
 
     val displayName = device.customName.ifEmpty { device.name.ifEmpty { "YuiTag" } }
     val dateFormatter = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
@@ -219,6 +237,52 @@ fun LiteDetailContent(
                         fontWeight = FontWeight.Medium,
                         color = if (isRinging) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                     )
+                }
+            }
+
+            // 遗落提醒卡片开关（跟随全局总开关显示/隐藏，置于最下方居中收窄）
+            if (uiState.isSeparationAlertMasterEnabled) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .fillMaxWidth(0.68f),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.NotificationsActive,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                            tint = if (device.separationAlertEnabled)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            text = "遗落提醒",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Switch(
+                            checked = device.separationAlertEnabled,
+                            onCheckedChange = { enabled ->
+                                viewModel.setSeparationAlertEnabled(device.uid, enabled)
+                                if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotificationPermission(context)) {
+                                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }

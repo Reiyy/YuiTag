@@ -1,5 +1,6 @@
 package com.reiyy.yuitag.ble
 
+import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanRecord
 import android.os.ParcelUuid
 import java.util.UUID
@@ -48,6 +49,24 @@ object YuiTagProtocol {
 
     // 厂商识别码 (Company ID)
     const val COMPANY_ID = 0x7722
+
+    // 厂商数据协议版本（广播厂商数据第一字节）
+    const val ADV_VERSION_V1 = 0x01.toByte()
+
+    /**
+     * 构造标准硬件级扫描过滤器：
+     * 显式匹配 Company ID (0x7722) 及 V1 协议版本首字节 (0x01)，掩码 0xFF。
+     * 避免部分蓝牙芯片在锁屏/休眠时由于空字节掩码导致硬件过滤被拒绝或静默丢包。
+     */
+    fun createScanFilter(): ScanFilter {
+        return ScanFilter.Builder()
+            .setManufacturerData(
+                COMPANY_ID,
+                byteArrayOf(ADV_VERSION_V1),
+                byteArrayOf(0xFF.toByte())
+            )
+            .build()
+    }
 
     // 设备名称前缀
     const val DEVICE_NAME_PREFIX = "YuiTag Starlight"

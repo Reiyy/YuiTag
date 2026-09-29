@@ -1,0 +1,360 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 3,
+    "identityHash": "1ae58bc1c39d28243a8159d72aeb76d0",
+    "entities": [
+      {
+        "tableName": "devices",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`uid` TEXT NOT NULL, `serialNumber` TEXT NOT NULL, `customName` TEXT NOT NULL, `deviceType` TEXT NOT NULL, `customIcon` TEXT NOT NULL, `themePath` TEXT NOT NULL, `protocolVersion` INTEGER NOT NULL, `firmwareVersion` TEXT NOT NULL, `firmwarePlatform` TEXT NOT NULL, `hardwareVersion` TEXT NOT NULL, `manufacturer` TEXT NOT NULL, `productName` TEXT NOT NULL, `productModel` TEXT NOT NULL, `coreVersion` TEXT NOT NULL, `aesKey` BLOB, `boundAt` INTEGER NOT NULL, `broadcastName` TEXT NOT NULL, `advIntervalNormal` INTEGER, `advIntervalFind` INTEGER, `findmyEnabled` INTEGER, `findmySupported` INTEGER, `findmySeed` BLOB, `findmyPeriodSec` INTEGER, `macAddress` TEXT NOT NULL, `deviceName` TEXT NOT NULL, `sortOrder` INTEGER NOT NULL, `lastSeen` INTEGER NOT NULL, `lastRssi` INTEGER NOT NULL, `battery` INTEGER NOT NULL, `separationAlertEnabled` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`uid`))",
+        "fields": [
+          {
+            "fieldPath": "uid",
+            "columnName": "uid",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serialNumber",
+            "columnName": "serialNumber",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "customName",
+            "columnName": "customName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceType",
+            "columnName": "deviceType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "customIcon",
+            "columnName": "customIcon",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "themePath",
+            "columnName": "themePath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "protocolVersion",
+            "columnName": "protocolVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "firmwareVersion",
+            "columnName": "firmwareVersion",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "firmwarePlatform",
+            "columnName": "firmwarePlatform",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hardwareVersion",
+            "columnName": "hardwareVersion",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "manufacturer",
+            "columnName": "manufacturer",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "productName",
+            "columnName": "productName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "productModel",
+            "columnName": "productModel",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "coreVersion",
+            "columnName": "coreVersion",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "aesKey",
+            "columnName": "aesKey",
+            "affinity": "BLOB",
+            "notNull": false
+          },
+          {
+            "fieldPath": "boundAt",
+            "columnName": "boundAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "broadcastName",
+            "columnName": "broadcastName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "advIntervalNormal",
+            "columnName": "advIntervalNormal",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "advIntervalFind",
+            "columnName": "advIntervalFind",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "findmyEnabled",
+            "columnName": "findmyEnabled",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "findmySupported",
+            "columnName": "findmySupported",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "findmySeed",
+            "columnName": "findmySeed",
+            "affinity": "BLOB",
+            "notNull": false
+          },
+          {
+            "fieldPath": "findmyPeriodSec",
+            "columnName": "findmyPeriodSec",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "macAddress",
+            "columnName": "macAddress",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceName",
+            "columnName": "deviceName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortOrder",
+            "columnName": "sortOrder",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSeen",
+            "columnName": "lastSeen",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastRssi",
+            "columnName": "lastRssi",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "battery",
+            "columnName": "battery",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "separationAlertEnabled",
+            "columnName": "separationAlertEnabled",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "uid"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "location_history",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `deviceUid` TEXT NOT NULL, `latitude` REAL NOT NULL, `longitude` REAL NOT NULL, `accuracy` INTEGER NOT NULL, `confidence` INTEGER NOT NULL, `timestamp` INTEGER NOT NULL, `batteryStatus` INTEGER NOT NULL, `counter` INTEGER NOT NULL, `periodIndex` INTEGER, `hashedKey` TEXT, `payloadType` TEXT, `address` TEXT, `shortAddress` TEXT, `addressDetail` TEXT, `createdAt` INTEGER NOT NULL, FOREIGN KEY(`deviceUid`) REFERENCES `devices`(`uid`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceUid",
+            "columnName": "deviceUid",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "latitude",
+            "columnName": "latitude",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "longitude",
+            "columnName": "longitude",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accuracy",
+            "columnName": "accuracy",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confidence",
+            "columnName": "confidence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "batteryStatus",
+            "columnName": "batteryStatus",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "counter",
+            "columnName": "counter",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "periodIndex",
+            "columnName": "periodIndex",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "hashedKey",
+            "columnName": "hashedKey",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "payloadType",
+            "columnName": "payloadType",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "address",
+            "columnName": "address",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "shortAddress",
+            "columnName": "shortAddress",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "addressDetail",
+            "columnName": "addressDetail",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_location_history_deviceUid",
+            "unique": false,
+            "columnNames": [
+              "deviceUid"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_location_history_deviceUid` ON `${TABLE_NAME}` (`deviceUid`)"
+          },
+          {
+            "name": "index_location_history_timestamp",
+            "unique": false,
+            "columnNames": [
+              "timestamp"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_location_history_timestamp` ON `${TABLE_NAME}` (`timestamp`)"
+          },
+          {
+            "name": "index_location_history_deviceUid_timestamp",
+            "unique": true,
+            "columnNames": [
+              "deviceUid",
+              "timestamp"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_location_history_deviceUid_timestamp` ON `${TABLE_NAME}` (`deviceUid`, `timestamp`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "devices",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "deviceUid"
+            ],
+            "referencedColumns": [
+              "uid"
+            ]
+          }
+        ]
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '1ae58bc1c39d28243a8159d72aeb76d0')"
+    ]
+  }
+}

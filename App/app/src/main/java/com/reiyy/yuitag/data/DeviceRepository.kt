@@ -20,7 +20,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import com.reiyy.yuitag.data.local.toDomainModel
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.ConcurrentHashMap
@@ -136,7 +138,8 @@ class DeviceRepository(
                 macAddress = entity.macAddress,
                 deviceName = entity.deviceName,
                 themePath = entity.themePath,
-                boundAt = entity.boundAt
+                boundAt = entity.boundAt,
+                separationAlertEnabled = entity.separationAlertEnabled
             )
         }
         return null
@@ -445,6 +448,27 @@ class DeviceRepository(
         }
     }
 
+    /** 更新遗落提醒开关 */
+    suspend fun updateSeparationAlertEnabled(uid: String, enabled: Boolean) {
+        dao.updateSeparationAlertEnabled(uid, enabled)
+        _boundDevicesCache.update { current ->
+            val existing = current[uid]
+            if (existing != null) current + (uid to existing.copy(separationAlertEnabled = enabled)) else current
+        }
+        _scannedDevices.update { current ->
+            val existing = current[uid]
+            if (existing != null) current + (uid to existing.copy(separationAlertEnabled = enabled)) else current
+        }
+    }
+
+    /** 获取所有已启用遗落提醒的设备（Flow） */
+    fun getMonitoredDevicesFlow(): Flow<List<YuiTagDevice>> =
+        dao.getMonitoredDevicesFlow().map { list -> list.map { it.toDomainModel() } }
+
+    /** 获取所有已启用遗落提醒的设备（同步列表） */
+    suspend fun getMonitoredDevices(): List<YuiTagDevice> =
+        dao.getMonitoredDevices().map { it.toDomainModel() }
+
     /** 手动导入设备：根据 uid + aesKey + mac 自动派生 seed 并保存 */
     suspend fun insertManualDevice(uid: String, aesKey: ByteArray, macAddress: String) {
         val seed = CryptoUtils.deriveFindMySeed(aesKey)
@@ -624,6 +648,9 @@ class DeviceRepository(
 
     fun getActiveFindSession(uid: String): FindSession? = bleConnectionManager.getSession(uid)
 
+    /** 检查指定设备当前是否存在活跃且未断开的 GATT 会话 */
+    fun isDeviceConnected(uid: String): Boolean = bleConnectionManager.isConnected(uid)
+
     /** 断开指定设备的活跃会话（断开 + 清理缓存 + 广播断线事件） */
     fun disconnectActiveFindSession(uid: String) {
         bleConnectionManager.disconnect(uid)
@@ -700,5 +727,18 @@ class DeviceRepository(
 
     companion object {
         private const val LAST_SEEN_WRITE_THROTTLE_MS = 10_000L
+
+        @Volatile
+        private var INSTANCE: DeviceRepository? = null
+
+        fun getInstance(context: Context): DeviceRepository {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: run {
+                    val appContext = context.applicationContext
+                    val db = com.reiyy.yuitag.data.local.YuiTagDatabase.getInstance(appContext)
+                    DeviceRepository(db.deviceDao(), db.locationDao()).also { INSTANCE = it }
+                }
+            }
+        }
     }
 }

@@ -1,6 +1,10 @@
 package com.reiyy.yuitag.ui.screens
 
+import android.Manifest
+import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,16 +41,31 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.reiyy.yuitag.data.FindMyQueryService
+import androidx.compose.material.icons.outlined.Devices
+import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.Radar
+import androidx.compose.material.icons.outlined.Sensors
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.runtime.collectAsState
+import com.reiyy.yuitag.data.DeviceRepository
+import com.reiyy.yuitag.data.SeparationAlertLevel
+import com.reiyy.yuitag.data.SeparationAlertPreferences
+import com.reiyy.yuitag.service.SeparationAlertService
 import com.reiyy.yuitag.ui.components.SettingsCard
 import com.reiyy.yuitag.ui.components.SettingsHeader
+import com.reiyy.yuitag.ui.components.SettingsRadioPreference
 import com.reiyy.yuitag.ui.components.SettingsRow
 import com.reiyy.yuitag.ui.components.SettingsSwitchRow
+import com.reiyy.yuitag.util.hasNotificationPermission
+import kotlinx.coroutines.flow.map
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
     onNavigateToManualImport: () -> Unit,
+    repository: DeviceRepository? = null,
+    onNavigateToMonitoredDevices: () -> Unit = {},
     onNavigateToLiteMain: () -> Unit = {},
     onNavigateToFullMain: () -> Unit = {},
     onNavigateToBackend: () -> Unit = {},
@@ -57,15 +76,41 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val service = remember { FindMyQueryService(context) }
+    val repo = remember {
+        repository ?: DeviceRepository.getInstance(context)
+    }
+    val alertPrefs = remember { SeparationAlertPreferences(context) }
 
     var liteMode by remember { mutableStateOf(service.isLiteModeEnabled()) }
     var debugMode by remember { mutableStateOf(service.isDebugModeEnabled()) }
     var endpointUrl by remember { mutableStateOf(service.getEndpointUrl()) }
+    var alertMasterEnabled by remember { mutableStateOf(alertPrefs.isMasterEnabled()) }
+    var alertTriggerLevel by remember { mutableStateOf(alertPrefs.getTriggerLevel()) }
+    var alertDelaySeconds by remember { mutableStateOf(alertPrefs.getDelaySeconds()) }
+    var alertFinalVerification by remember { mutableStateOf(alertPrefs.isFinalVerificationEnabled()) }
+
+    val monitoredCount by remember(repo) {
+        repo.getMonitoredDevicesFlow().map { it.size }
+    }.collectAsState(initial = 0)
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            SeparationAlertService.syncServiceState(context)
+        } else {
+            Toast.makeText(context, "未授予通知权限，遗落报警可能无法在锁屏或后台弹出提示", Toast.LENGTH_LONG).show()
+        }
+    }
 
     LifecycleResumeEffect(Unit) {
         liteMode = service.isLiteModeEnabled()
         debugMode = service.isDebugModeEnabled()
         endpointUrl = service.getEndpointUrl()
+        alertMasterEnabled = alertPrefs.isMasterEnabled()
+        alertTriggerLevel = alertPrefs.getTriggerLevel()
+        alertDelaySeconds = alertPrefs.getDelaySeconds()
+        alertFinalVerification = alertPrefs.isFinalVerificationEnabled()
         onPauseOrDispose { }
     }
 
@@ -115,6 +160,77 @@ fun SettingsScreen(
                         debugMode = enabled
                         service.setDebugModeEnabled(enabled)
                     }
+                )
+            }
+
+            SettingsHeader("遗落提醒")
+            SettingsCard {
+                SettingsSwitchRow(
+                    icon = Icons.Outlined.NotificationsActive,
+                    title = "遗落提醒 (实验性)",
+                    subtitle = if (alertMasterEnabled) "设备离开身边时发出通知" else "已关闭",
+                    checked = alertMasterEnabled,
+                    onCheckedChange = { enabled ->
+                        alertMasterEnabled = enabled
+                        alertPrefs.setMasterEnabled(enabled)
+                        SeparationAlertService.syncServiceState(context)
+                        if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotificationPermission(context)) {
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    }
+                )
+                HorizontalDivider()
+                SettingsRadioPreference(
+                    icon = Icons.Outlined.Sensors,
+                    title = "触发距离",
+                    subtitle = "超出设定距离时提醒",
+                    options = listOf(
+                        SeparationAlertLevel.NEARBY.key to "在附近",
+                        SeparationAlertLevel.CLOSE.key to "距离近",
+                        SeparationAlertLevel.FAR.key to "距离远",
+                        SeparationAlertLevel.WEAK.key to "信号弱",
+                        SeparationAlertLevel.NO_SIGNAL.key to "无信号"
+                    ),
+                    selected = alertTriggerLevel.key,
+                    onSelect = { key ->
+                        val newLevel = SeparationAlertLevel.fromKey(key)
+                        alertTriggerLevel = newLevel
+                        alertPrefs.setTriggerLevel(newLevel)
+                    }
+                )
+                HorizontalDivider()
+                SettingsRadioPreference(
+                    icon = Icons.Outlined.Timer,
+                    title = "确认延时",
+                    subtitle = "持续满足条件后触发",
+                    options = listOf(
+                        30 to "30 秒",
+                        60 to "1 分钟",
+                        120 to "2 分钟"
+                    ),
+                    selected = alertDelaySeconds,
+                    onSelect = { seconds ->
+                        alertDelaySeconds = seconds
+                        alertPrefs.setDelaySeconds(seconds)
+                    }
+                )
+                HorizontalDivider()
+                SettingsSwitchRow(
+                    icon = Icons.Outlined.Radar,
+                    title = "最后复核",
+                    subtitle = if (alertFinalVerification) "报警前全速扫描 6 秒以降低误报" else "已关闭",
+                    checked = alertFinalVerification,
+                    onCheckedChange = { enabled ->
+                        alertFinalVerification = enabled
+                        alertPrefs.setFinalVerificationEnabled(enabled)
+                    }
+                )
+                HorizontalDivider()
+                SettingsRow(
+                    icon = Icons.Outlined.Devices,
+                    title = "监控设备",
+                    subtitle = "${monitoredCount} 个设备已开启",
+                    onClick = onNavigateToMonitoredDevices
                 )
             }
 

@@ -49,6 +49,12 @@ class BleConnectionManager(private val gattClient: BleGattClient) {
 
     fun getSession(uid: String): FindSession? = sessions[uid]
 
+    /** 查询指定设备当前是否存在活跃且未断开的 GATT 会话 */
+    fun isConnected(uid: String): Boolean {
+        val session = sessions[uid] ?: return false
+        return !session.isDisconnected
+    }
+
     // --- 建连与会话持有 ---
 
     /**

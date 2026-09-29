@@ -35,7 +35,8 @@ data class YuiTagDevice(
     val findmyPeriodSec: Int? = null,          // Find My 轮换周期 (秒)，null=未读取
     val macAddress: String = "",               // BLE MAC 地址
     val deviceName: String = "",               // 设备名称 (DIS GATT)
-    val boundAt: Long = 0                      // 绑定时间戳
+    val boundAt: Long = 0,                     // 绑定时间戳
+    val separationAlertEnabled: Boolean = false // 遗落提醒开关
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -70,6 +71,7 @@ data class YuiTagDevice(
             macAddress == other.macAddress &&
             deviceName == other.deviceName &&
             boundAt == other.boundAt &&
+            separationAlertEnabled == other.separationAlertEnabled &&
             bytesEq(aesKey, other.aesKey) &&
             bytesEq(findmySeed, other.findmySeed)
     }
@@ -105,6 +107,7 @@ data class YuiTagDevice(
         result = 31 * result + macAddress.hashCode()
         result = 31 * result + deviceName.hashCode()
         result = 31 * result + boundAt.hashCode()
+        result = 31 * result + separationAlertEnabled.hashCode()
         result = 31 * result + (aesKey?.contentHashCode() ?: 0)
         result = 31 * result + (findmySeed?.contentHashCode() ?: 0)
         return result

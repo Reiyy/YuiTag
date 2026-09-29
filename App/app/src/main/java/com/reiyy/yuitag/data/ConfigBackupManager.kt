@@ -7,6 +7,7 @@ import com.google.gson.stream.JsonWriter
 import com.reiyy.yuitag.BuildConfig
 import com.reiyy.yuitag.ble.FileLog
 import com.reiyy.yuitag.data.local.DeviceEntity
+import com.reiyy.yuitag.service.SeparationAlertService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedOutputStream
@@ -62,7 +63,11 @@ object ConfigBackupManager {
         val tianditu_style: String = "",
         val health_normal_days: Int = 7,
         val lite_mode_enabled: Boolean = false,
-        val debug_mode_enabled: Boolean = false
+        val debug_mode_enabled: Boolean = false,
+        val separation_alert_master_enabled: Boolean = true,
+        val separation_alert_trigger_level: String = "far",
+        val separation_alert_delay_seconds: Int = 30,
+        val separation_alert_final_verification_enabled: Boolean = false
     )
 
     data class BackupDevice(
@@ -94,6 +99,7 @@ object ConfigBackupManager {
         val lastSeen: Long = 0L,
         val lastRssi: Int = 0,
         val battery: Int = -1,
+        val separationAlertEnabled: Boolean = false,
         val theme: Map<String, String> = emptyMap()   // 文件名 -> Base64
     )
 
@@ -170,6 +176,10 @@ object ConfigBackupManager {
                 writer.name("health_normal_days").value(prefs.getInt("health_normal_days", 7))
                 writer.name("lite_mode_enabled").value(prefs.getBoolean("lite_mode_enabled", false))
                 writer.name("debug_mode_enabled").value(prefs.getBoolean("debug_mode_enabled", false))
+                writer.name("separation_alert_master_enabled").value(prefs.getBoolean("separation_alert_master_enabled", true))
+                writer.name("separation_alert_trigger_level").value(prefs.getString("separation_alert_trigger_level", "far") ?: "far")
+                writer.name("separation_alert_delay_seconds").value(prefs.getInt("separation_alert_delay_seconds", 30))
+                writer.name("separation_alert_final_verification_enabled").value(prefs.getBoolean("separation_alert_final_verification_enabled", false))
                 writer.endObject()
 
                 writer.name("devices")
@@ -219,6 +229,7 @@ object ConfigBackupManager {
                     writer.name("lastSeen").value(entity.lastSeen)
                     writer.name("lastRssi").value(entity.lastRssi)
                     writer.name("battery").value(entity.battery)
+                    writer.name("separationAlertEnabled").value(entity.separationAlertEnabled)
 
                     writer.name("theme")
                     writer.beginObject()
@@ -280,8 +291,13 @@ object ConfigBackupManager {
                 .putInt("health_normal_days", s.health_normal_days.coerceAtLeast(1))
                 .putBoolean("lite_mode_enabled", s.lite_mode_enabled)
                 .putBoolean("debug_mode_enabled", s.debug_mode_enabled)
+                .putBoolean("separation_alert_master_enabled", s.separation_alert_master_enabled)
+                .putString("separation_alert_trigger_level", s.separation_alert_trigger_level.ifBlank { "far" })
+                .putInt("separation_alert_delay_seconds", s.separation_alert_delay_seconds.coerceAtLeast(SeparationAlertPreferences.MIN_DELAY_SECONDS))
+                .putBoolean("separation_alert_final_verification_enabled", s.separation_alert_final_verification_enabled)
                 .apply()
             settingsRestored = true
+            SeparationAlertService.syncServiceState(context)
         }
 
         // 2) 恢复设备（合并导入：同名 UID 覆盖，本机独有保留）
@@ -331,7 +347,8 @@ object ConfigBackupManager {
             sortOrder = bd.sortOrder,
             lastSeen = bd.lastSeen,
             lastRssi = bd.lastRssi,
-            battery = bd.battery
+            battery = bd.battery,
+            separationAlertEnabled = bd.separationAlertEnabled
         )
     }
 

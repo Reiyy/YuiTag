@@ -17,6 +17,7 @@ import com.reiyy.yuitag.ui.screens.DevOptionsScreen
 import com.reiyy.yuitag.ui.screens.FindScreen
 import com.reiyy.yuitag.ui.screens.LocationHistoryScreen
 import com.reiyy.yuitag.ui.screens.ManualImportScreen
+import com.reiyy.yuitag.ui.screens.MonitoredDevicesScreen
 import com.reiyy.yuitag.ui.screens.LiteMainScreen
 import com.reiyy.yuitag.ui.screens.MapMainScreen
 import com.reiyy.yuitag.ui.screens.OtaFirmwareUpdateScreen
@@ -50,6 +51,7 @@ object Routes {
     const val SETTINGS_MAP = "settings/map"
     const val SETTINGS_QUERY = "settings/query"
     const val SETTINGS_BACKUP = "settings/backup"
+    const val SETTINGS_MONITORED_DEVICES = "settings/monitored_devices"
     const val ABOUT = "about"
     const val LOCATION_HISTORY = "locationHistory/{uid}"
     const val TRAJECTORY = "trajectory/{uid}"
@@ -196,7 +198,16 @@ fun YuiTagNavGraph(
                 onNavigateToMap = { navController.navigate(Routes.SETTINGS_MAP) },
                 onNavigateToQuery = { navController.navigate(Routes.SETTINGS_QUERY) },
                 onNavigateToBackup = { navController.navigate(Routes.SETTINGS_BACKUP) },
-                onNavigateToAbout = { navController.navigate(Routes.ABOUT) }
+                onNavigateToAbout = { navController.navigate(Routes.ABOUT) },
+                repository = repository,
+                onNavigateToMonitoredDevices = { navController.navigate(Routes.SETTINGS_MONITORED_DEVICES) }
+            )
+        }
+
+        composable(Routes.SETTINGS_MONITORED_DEVICES) {
+            MonitoredDevicesScreen(
+                repository = repository,
+                onBack = { navController.popBackStack() }
             )
         }
 

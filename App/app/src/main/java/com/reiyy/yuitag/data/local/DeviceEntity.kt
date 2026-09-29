@@ -44,7 +44,9 @@ data class DeviceEntity(
     val sortOrder: Int = 0,                    // 用户自定义排序值
     val lastSeen: Long = 0,                    // 最近在线时间戳
     val lastRssi: Int = 0,                     // 最近一次广播 RSSI
-    val battery: Int = -1                      // 最近一次广播电量（%，-1=未知）
+    val battery: Int = -1,                     // 最近一次广播电量（%，-1=未知）
+    @androidx.room.ColumnInfo(defaultValue = "0")
+    val separationAlertEnabled: Boolean = false // 遗落提醒开关
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -76,6 +78,7 @@ data class DeviceEntity(
             lastSeen == other.lastSeen &&
             lastRssi == other.lastRssi &&
             battery == other.battery &&
+            separationAlertEnabled == other.separationAlertEnabled &&
             bytesEq(aesKey, other.aesKey) &&
             bytesEq(findmySeed, other.findmySeed)
     }
@@ -108,6 +111,7 @@ data class DeviceEntity(
         result = 31 * result + lastSeen.hashCode()
         result = 31 * result + lastRssi
         result = 31 * result + battery
+        result = 31 * result + separationAlertEnabled.hashCode()
         result = 31 * result + (aesKey?.contentHashCode() ?: 0)
         result = 31 * result + (findmySeed?.contentHashCode() ?: 0)
         return result
@@ -146,7 +150,8 @@ fun DeviceEntity.toDomainModel(): YuiTagDevice = YuiTagDevice(
     macAddress = macAddress,
     deviceName = deviceName,
     lastSeen = lastSeen,
-    boundAt = boundAt
+    boundAt = boundAt,
+    separationAlertEnabled = separationAlertEnabled
 )
 
 /** ByteArray 内容比较（null 安全） */

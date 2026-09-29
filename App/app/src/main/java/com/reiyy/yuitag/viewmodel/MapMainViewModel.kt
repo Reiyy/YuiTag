@@ -17,10 +17,12 @@ import com.reiyy.yuitag.data.DeviceRepository
 import com.reiyy.yuitag.data.FindMyQueryService
 import com.reiyy.yuitag.data.LocationQueryHelper
 import com.reiyy.yuitag.data.NoEndpointException
+import com.reiyy.yuitag.data.SeparationAlertPreferences
 import com.reiyy.yuitag.data.YuiTagDevice
 import com.reiyy.yuitag.data.local.DeviceType
 import com.reiyy.yuitag.data.local.LocationEntity
 import com.reiyy.yuitag.data.local.toDomainModel
+import com.reiyy.yuitag.service.SeparationAlertService
 import com.reiyy.yuitag.util.LocationProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -60,13 +62,16 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
     private val gattClient = BleGattClient()
     private lateinit var repository: DeviceRepository
     private val findMyQueryService = FindMyQueryService(application)
+    private val alertPrefs = SeparationAlertPreferences(application)
     // 延迟初始化，避免在 initRepository 之前访问未初始化的 repository
     private val locationQueryHelper by lazy { LocationQueryHelper(repository, findMyQueryService) }
 
     val locationProvider = LocationProvider(application)
     val locationState: StateFlow<LocationProvider.LocationState> = locationProvider.locationState
 
-    private val _uiState = MutableStateFlow(MapMainUiState())
+    private val _uiState = MutableStateFlow(
+        MapMainUiState(isSeparationAlertMasterEnabled = alertPrefs.isMasterEnabled())
+    )
     val uiState: StateFlow<MapMainUiState> = _uiState.asStateFlow()
 
     private val _boundDevices = MutableStateFlow<List<YuiTagDevice>>(emptyList())
@@ -127,6 +132,11 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
             startInitialScan()
         } else {
             _uiState.update { it.copy(bluetoothEnabled = false) }
+        }
+        viewModelScope.launch {
+            alertPrefs.masterEnabledFlow().collect { enabled ->
+                _uiState.update { it.copy(isSeparationAlertMasterEnabled = enabled) }
+            }
         }
     }
 
@@ -645,6 +655,14 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /** 开启或停用指定设备的遗落提醒 */
+    fun setSeparationAlertEnabled(uid: String, enabled: Boolean) {
+        viewModelScope.launch {
+            repository.updateSeparationAlertEnabled(uid, enabled)
+            SeparationAlertService.syncServiceState(getApplication())
+        }
+    }
+
     // --- 设备绑定 ---
 
     fun bindDevice(uid: String) {
@@ -887,6 +905,11 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
         backgroundDisconnectJob?.cancel()
         backgroundDisconnectJob = null
 
+        val masterEnabled = alertPrefs.isMasterEnabled()
+        if (_uiState.value.isSeparationAlertMasterEnabled != masterEnabled) {
+            _uiState.update { it.copy(isSeparationAlertMasterEnabled = masterEnabled) }
+        }
+
         refreshHealthStates()
 
         if (!_uiState.value.isScanning && scanner.isBluetoothEnabled) {
@@ -1062,6 +1085,7 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
         val error: String? = null,
         val bottomSheetMode: BottomSheetMode = BottomSheetMode.LIST,
         val selectedDeviceUid: String? = null,
+        val isSeparationAlertMasterEnabled: Boolean = true,
         // Bind popup
         val showBindPopup: Boolean = false,
         val unboundDeviceUid: String? = null,

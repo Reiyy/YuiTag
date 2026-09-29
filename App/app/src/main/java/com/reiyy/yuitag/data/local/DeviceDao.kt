@@ -111,4 +111,16 @@ interface DeviceDao {
     /** 更新主题包路径 */
     @Query("UPDATE devices SET themePath = :path WHERE uid = :uid")
     suspend fun updateThemePath(uid: String, path: String)
+
+    /** 更新遗落提醒开关 */
+    @Query("UPDATE devices SET separationAlertEnabled = :enabled WHERE uid = :uid")
+    suspend fun updateSeparationAlertEnabled(uid: String, enabled: Boolean)
+
+    /** 获取所有已启用遗落提醒的设备（Flow 实时观察） */
+    @Query("SELECT * FROM devices WHERE separationAlertEnabled = 1 ORDER BY sortOrder ASC, boundAt ASC")
+    fun getMonitoredDevicesFlow(): Flow<List<DeviceEntity>>
+
+    /** 获取所有已启用遗落提醒的设备（同步） */
+    @Query("SELECT * FROM devices WHERE separationAlertEnabled = 1 ORDER BY sortOrder ASC, boundAt ASC")
+    suspend fun getMonitoredDevices(): List<DeviceEntity>
 }

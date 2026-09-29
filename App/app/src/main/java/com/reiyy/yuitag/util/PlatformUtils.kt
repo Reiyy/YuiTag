@@ -26,6 +26,13 @@ fun hasLocationPermission(context: Context): Boolean {
            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 }
 
+fun hasNotificationPermission(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        return ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    }
+    return true
+}
+
 fun toggleFlashlight(context: Context, on: Boolean): Boolean {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
         val camManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager ?: return false
