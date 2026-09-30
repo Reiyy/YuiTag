@@ -73,9 +73,6 @@ dependencies {
     // Lottie Compose (animation)
     implementation(libs.lottie.compose)
 
-    // Google Play Services Location
-    implementation(libs.play.services.location)
-
     // 拖拽排序（sh.calvin.reorderable）
     implementation(libs.reorderable)
 
