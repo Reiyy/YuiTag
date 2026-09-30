@@ -52,6 +52,8 @@ class SeparationAlertPreferences(context: Context) {
         const val KEY_TRIGGER_LEVEL = "separation_alert_trigger_level"
         const val KEY_DELAY_SECONDS = "separation_alert_delay_seconds"
         const val KEY_FINAL_VERIFICATION_ENABLED = "separation_alert_final_verification_enabled"
+        const val KEY_SAFE_WIFI_ENABLED = "separation_alert_safe_wifi_enabled"
+        const val KEY_SAFE_WIFI_SSIDS = "separation_alert_safe_wifi_ssids"
 
         /** 最小确认延时（秒），用于抑制偶发丢包与扫描占空比波动 */
         const val MIN_DELAY_SECONDS = 30
@@ -102,5 +104,72 @@ class SeparationAlertPreferences(context: Context) {
 
     fun setFinalVerificationEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_FINAL_VERIFICATION_ENABLED, enabled).apply()
+    }
+
+    fun isSafeWifiEnabled(): Boolean =
+        prefs.getBoolean(KEY_SAFE_WIFI_ENABLED, false)
+
+    fun setSafeWifiEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_SAFE_WIFI_ENABLED, enabled).apply()
+    }
+
+    fun safeWifiEnabledFlow(): Flow<Boolean> = callbackFlow {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_SAFE_WIFI_ENABLED) {
+                trySend(isSafeWifiEnabled())
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        trySend(isSafeWifiEnabled())
+        awaitClose {
+            prefs.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }
+
+    fun getSafeWifiSet(): Set<String> {
+        val rawSet = prefs.getStringSet(KEY_SAFE_WIFI_SSIDS, null) ?: emptySet()
+        return rawSet.toSet()
+    }
+
+    fun setSafeWifiSet(ssids: Set<String>) {
+        val sanitized = ssids.mapNotNull {
+            val c = it.removeSurrounding("\"").trim()
+            if (c.isNotEmpty()) c else null
+        }.toSet()
+        prefs.edit().putStringSet(KEY_SAFE_WIFI_SSIDS, HashSet(sanitized)).apply()
+    }
+
+    fun safeWifiSetFlow(): Flow<Set<String>> = callbackFlow {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_SAFE_WIFI_SSIDS) {
+                trySend(getSafeWifiSet())
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        trySend(getSafeWifiSet())
+        awaitClose {
+            prefs.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }
+
+    fun addSafeWifi(ssid: String): Boolean {
+        val clean = ssid.removeSurrounding("\"").trim()
+        if (clean.isEmpty() || clean == "<unknown ssid>" || clean == "0x") return false
+        val current = getSafeWifiSet().toMutableSet()
+        val added = current.add(clean)
+        if (added) {
+            setSafeWifiSet(current)
+        }
+        return added
+    }
+
+    fun removeSafeWifi(ssid: String): Boolean {
+        val clean = ssid.removeSurrounding("\"").trim()
+        val current = getSafeWifiSet().toMutableSet()
+        val removed = current.remove(clean)
+        if (removed) {
+            setSafeWifiSet(current)
+        }
+        return removed
     }
 }

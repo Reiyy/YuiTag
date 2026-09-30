@@ -19,6 +19,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.net.wifi.WifiInfo
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
@@ -35,6 +40,7 @@ import com.reiyy.yuitag.data.SeparationAlertLevel
 import com.reiyy.yuitag.data.SeparationAlertPreferences
 import com.reiyy.yuitag.data.YuiTagDevice
 import com.reiyy.yuitag.data.local.YuiTagDatabase
+import com.reiyy.yuitag.util.WifiNetworkUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -170,6 +176,11 @@ class SeparationAlertService : Service() {
     private var lastScheduledAlarmRealtimeMs = 0L
     private var lastStatusLogMs = 0L
 
+    // Wi-Fi 免打扰状态
+    @Volatile
+    private var currentWifiSsid: String? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
     private val bluetoothStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
@@ -220,6 +231,9 @@ class SeparationAlertService : Service() {
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
 
+        // 注册 Wi-Fi 连接状态监听
+        registerWifiCallback()
+
         // 启动专用评估 HandlerThread
         evalThread = HandlerThread("YuiTag-SepEval", android.os.Process.THREAD_PRIORITY_BACKGROUND).apply {
             start()
@@ -265,8 +279,59 @@ class SeparationAlertService : Service() {
 
         cancelWakeAlarm()
         stopBleScanning()
+        unregisterWifiCallback()
         serviceScope.cancel()
         FileLog.i(TAG, "遗落监测前台服务已停止")
+    }
+
+    // --- Wi-Fi 连接状态监听与安全区判定 ---
+
+    private fun registerWifiCallback() {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+        val request = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .build()
+
+        val callback = object : ConnectivityManager.NetworkCallback(FLAG_INCLUDE_LOCATION_INFO) {
+            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                val wifiInfo = networkCapabilities.transportInfo as? WifiInfo
+                val cleanSsid = WifiNetworkUtil.sanitizeSsid(wifiInfo?.ssid)
+                val prevSsid = currentWifiSsid
+                currentWifiSsid = cleanSsid
+                if (prevSsid != cleanSsid) {
+                    FileLog.i(TAG, "Wi-Fi 状态变更: [${prevSsid ?: "无"}] -> [${cleanSsid ?: "无"}]")
+                    evalHandler?.post { evaluateTrackedTags() }
+                }
+            }
+
+            override fun onLost(network: Network) {
+                val prevSsid = currentWifiSsid
+                currentWifiSsid = null
+                if (prevSsid != null) {
+                    FileLog.i(TAG, "Wi-Fi 已断开: [$prevSsid]")
+                    evalHandler?.post { evaluateTrackedTags() }
+                }
+            }
+        }
+
+        try {
+            cm.registerNetworkCallback(request, callback)
+            networkCallback = callback
+            currentWifiSsid = WifiNetworkUtil.getCurrentlyConnectedWifiSsid(this)
+            FileLog.i(TAG, "Wi-Fi 状态监听已就绪，当前 SSID: [${currentWifiSsid ?: "未连接/未知"}]")
+        } catch (e: Exception) {
+            FileLog.e(TAG, "注册 Wi-Fi 监听失败: ${e.message}", e)
+        }
+    }
+
+    private fun unregisterWifiCallback() {
+        val cb = networkCallback ?: return
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        try {
+            cm?.unregisterNetworkCallback(cb)
+        } catch (_: Exception) {}
+        networkCallback = null
+        currentWifiSsid = null
     }
 
     // --- BLE 扫描与探针复核 ---
@@ -523,6 +588,10 @@ class SeparationAlertService : Service() {
         var needBoostScan = false
         var boostReason = ""
 
+        val safeWifiEnabled = preferences.isSafeWifiEnabled()
+        val safeWifiSet = if (safeWifiEnabled) preferences.getSafeWifiSet() else emptySet()
+        val isUnderSafeWifi = safeWifiEnabled && currentWifiSsid != null && safeWifiSet.contains(currentWifiSsid)
+
         for ((uid, state) in monitoredTags) {
             // GATT 连接豁免：已连接时必定在身边
             if (isGattConnected(uid)) {
@@ -533,6 +602,14 @@ class SeparationAlertService : Service() {
                     state.isAlerted = false
                     notificationManager.cancel(getAlertNotificationId(state.uid))
                     FileLog.i(TAG, "检测到 GATT 连接，解除警报: ${state.displayName}")
+                }
+                continue
+            }
+
+            // 安全 Wi-Fi 免打扰豁免：手机连接到特定 Wi-Fi 时不进行遗落监测
+            if (isUnderSafeWifi) {
+                if (!state.isAlerted) {
+                    state.triggerStartTimeMs = null
                 }
                 continue
             }

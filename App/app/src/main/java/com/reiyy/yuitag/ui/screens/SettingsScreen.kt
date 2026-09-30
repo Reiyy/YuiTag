@@ -46,6 +46,8 @@ import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.Radar
 import androidx.compose.material.icons.outlined.Sensors
 import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.Wifi
+import androidx.compose.material.icons.outlined.Router
 import androidx.compose.runtime.collectAsState
 import com.reiyy.yuitag.data.DeviceRepository
 import com.reiyy.yuitag.data.SeparationAlertLevel
@@ -66,6 +68,7 @@ fun SettingsScreen(
     onNavigateToManualImport: () -> Unit,
     repository: DeviceRepository? = null,
     onNavigateToMonitoredDevices: () -> Unit = {},
+    onNavigateToSafeWifi: () -> Unit = {},
     onNavigateToLiteMain: () -> Unit = {},
     onNavigateToFullMain: () -> Unit = {},
     onNavigateToBackend: () -> Unit = {},
@@ -88,6 +91,8 @@ fun SettingsScreen(
     var alertTriggerLevel by remember { mutableStateOf(alertPrefs.getTriggerLevel()) }
     var alertDelaySeconds by remember { mutableStateOf(alertPrefs.getDelaySeconds()) }
     var alertFinalVerification by remember { mutableStateOf(alertPrefs.isFinalVerificationEnabled()) }
+    var alertSafeWifiEnabled by remember { mutableStateOf(alertPrefs.isSafeWifiEnabled()) }
+    var safeWifiCount by remember { mutableStateOf(alertPrefs.getSafeWifiSet().size) }
 
     val monitoredCount by remember(repo) {
         repo.getMonitoredDevicesFlow().map { it.size }
@@ -111,6 +116,8 @@ fun SettingsScreen(
         alertTriggerLevel = alertPrefs.getTriggerLevel()
         alertDelaySeconds = alertPrefs.getDelaySeconds()
         alertFinalVerification = alertPrefs.isFinalVerificationEnabled()
+        alertSafeWifiEnabled = alertPrefs.isSafeWifiEnabled()
+        safeWifiCount = alertPrefs.getSafeWifiSet().size
         onPauseOrDispose { }
     }
 
@@ -232,6 +239,26 @@ fun SettingsScreen(
                     subtitle = "${monitoredCount} 个设备已开启",
                     onClick = onNavigateToMonitoredDevices
                 )
+                HorizontalDivider()
+                SettingsSwitchRow(
+                    icon = Icons.Outlined.Wifi,
+                    title = "Wi-Fi网络白名单",
+                    subtitle = if (alertSafeWifiEnabled) "连接信任网络时不发出遗落提醒" else "已关闭",
+                    checked = alertSafeWifiEnabled,
+                    onCheckedChange = { enabled ->
+                        alertSafeWifiEnabled = enabled
+                        alertPrefs.setSafeWifiEnabled(enabled)
+                    }
+                )
+                if (alertSafeWifiEnabled) {
+                    HorizontalDivider()
+                    SettingsRow(
+                        icon = Icons.Outlined.Router,
+                        title = "白名单 Wi-Fi 列表",
+                        subtitle = if (safeWifiCount == 0) "未配置网络" else "已添加 ${safeWifiCount} 个网络",
+                        onClick = onNavigateToSafeWifi
+                    )
+                }
             }
 
             SettingsHeader("服务")

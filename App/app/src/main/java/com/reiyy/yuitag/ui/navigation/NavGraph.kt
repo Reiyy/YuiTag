@@ -22,6 +22,7 @@ import com.reiyy.yuitag.ui.screens.LiteMainScreen
 import com.reiyy.yuitag.ui.screens.MapMainScreen
 import com.reiyy.yuitag.ui.screens.OtaFirmwareUpdateScreen
 import com.reiyy.yuitag.ui.screens.PersonalizationScreen
+import com.reiyy.yuitag.ui.screens.SafeWifiScreen
 import com.reiyy.yuitag.ui.screens.SettingsBackendScreen
 import com.reiyy.yuitag.ui.screens.SettingsBackupScreen
 import com.reiyy.yuitag.ui.screens.SettingsMapScreen
@@ -52,6 +53,7 @@ object Routes {
     const val SETTINGS_QUERY = "settings/query"
     const val SETTINGS_BACKUP = "settings/backup"
     const val SETTINGS_MONITORED_DEVICES = "settings/monitored_devices"
+    const val SETTINGS_SAFE_WIFI = "settings/safe_wifi"
     const val ABOUT = "about"
     const val LOCATION_HISTORY = "locationHistory/{uid}"
     const val TRAJECTORY = "trajectory/{uid}"
@@ -200,13 +202,20 @@ fun YuiTagNavGraph(
                 onNavigateToBackup = { navController.navigate(Routes.SETTINGS_BACKUP) },
                 onNavigateToAbout = { navController.navigate(Routes.ABOUT) },
                 repository = repository,
-                onNavigateToMonitoredDevices = { navController.navigate(Routes.SETTINGS_MONITORED_DEVICES) }
+                onNavigateToMonitoredDevices = { navController.navigate(Routes.SETTINGS_MONITORED_DEVICES) },
+                onNavigateToSafeWifi = { navController.navigate(Routes.SETTINGS_SAFE_WIFI) }
             )
         }
 
         composable(Routes.SETTINGS_MONITORED_DEVICES) {
             MonitoredDevicesScreen(
                 repository = repository,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.SETTINGS_SAFE_WIFI) {
+            SafeWifiScreen(
                 onBack = { navController.popBackStack() }
             )
         }
