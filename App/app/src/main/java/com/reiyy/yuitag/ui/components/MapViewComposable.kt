@@ -91,6 +91,7 @@ fun OsmMapView(
     modifiers: Modifier = Modifier,
     markers: List<MapMarkerData> = emptyList(),
     selectedUid: String? = null,
+    selfMarkerToFrontToken: Int = 0,
     tiandituKey: String = "",
     tiandituStyle: String = TiandituTileSource.STYLE_VECTOR,
     paused: Boolean = false,
@@ -288,16 +289,45 @@ fun OsmMapView(
                 markerCache.remove(key)
             }
         }
+        // 初期或未选中时，确保本机标记排在所有 marker 最上方；若已有选中则保持选中标记在最顶层
+        if (selectedUid != null) {
+            markerCache[selectedUid]?.let { marker ->
+                mapView.overlays.remove(marker)
+                mapView.overlays.add(marker)
+            }
+        } else {
+            markerCache[SELF_MARKER_KEY]?.let { selfMarker ->
+                mapView.overlays.remove(selfMarker)
+                mapView.overlays.add(selfMarker)
+            }
+        }
         mapView.invalidate()
         onDispose {}
     }
 
-    // 将选中标记移至顶层
+    // 将选中标记移至顶层，取消选中时恢复本机标记至顶层
     LaunchedEffect(selectedUid) {
-        selectedUid?.let { uid ->
-            markerCache[uid]?.let { marker ->
+        if (selectedUid != null) {
+            markerCache[selectedUid]?.let { marker ->
                 mapView.overlays.remove(marker)
                 mapView.overlays.add(marker)
+                mapView.invalidate()
+            }
+        } else {
+            markerCache[SELF_MARKER_KEY]?.let { selfMarker ->
+                mapView.overlays.remove(selfMarker)
+                mapView.overlays.add(selfMarker)
+                mapView.invalidate()
+            }
+        }
+    }
+
+    // 手动刷新定位时将本机标记移至顶层
+    LaunchedEffect(selfMarkerToFrontToken) {
+        if (selfMarkerToFrontToken > 0) {
+            markerCache[SELF_MARKER_KEY]?.let { selfMarker ->
+                mapView.overlays.remove(selfMarker)
+                mapView.overlays.add(selfMarker)
                 mapView.invalidate()
             }
         }

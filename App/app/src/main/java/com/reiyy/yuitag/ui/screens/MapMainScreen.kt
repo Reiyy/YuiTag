@@ -43,6 +43,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -214,6 +215,7 @@ fun MapMainScreen(
     var showTopMenu by remember { mutableStateOf(false) }
     var recenterTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var recenterToken by remember { mutableStateOf(0) }
+    var selfMarkerToFrontToken by remember { mutableIntStateOf(0) }
 
     // 将地图居中到指定位置（token 强制每次触发动画，即使坐标相同）
     fun centerOn(lat: Double, lng: Double) {
@@ -258,9 +260,10 @@ fun MapMainScreen(
             if (target == BottomSheetMode.DETAIL) {
                 uiState.selectedDeviceUid?.let { viewModel.refreshLocation(it) }
             }
-            // 从详情回到列表：动画结束后地图回中到本机位置
+            // 从详情回到列表：动画结束后地图回中到本机位置并置顶本机标记
             if (target == BottomSheetMode.LIST && locationState.hasLocation) {
                 centerOn(locationState.latitude, locationState.longitude)
+                selfMarkerToFrontToken++
             }
         }
     }
@@ -300,14 +303,6 @@ fun MapMainScreen(
 
     val mapMarkers = remember(locationState, uiState.deviceLatestLocations, boundDevices, uiState.selectedDeviceUid, markerIcons) {
         val markers = mutableListOf<com.reiyy.yuitag.ui.components.MapMarkerData>()
-        if (locationState.hasLocation) {
-            markers.add(com.reiyy.yuitag.ui.components.MapMarkerData(
-                latitude = locationState.latitude,
-                longitude = locationState.longitude,
-                title = "我的位置",
-                icon = markerIcons.myLocation
-            ))
-        }
         for ((uid, loc) in uiState.deviceLatestLocations) {
             val device = boundDevices.find { it.uid == uid }
             val deviceType = device?.deviceType ?: com.reiyy.yuitag.data.local.DeviceType.CUSTOM
@@ -336,6 +331,15 @@ fun MapMainScreen(
                 icon = icon
             ))
         }
+        // 本机位置后添加（自然层级在 tag 之上）
+        if (locationState.hasLocation) {
+            markers.add(com.reiyy.yuitag.ui.components.MapMarkerData(
+                latitude = locationState.latitude,
+                longitude = locationState.longitude,
+                title = "我的位置",
+                icon = markerIcons.myLocation
+            ))
+        }
         markers.toList()
     }
 
@@ -357,6 +361,7 @@ fun MapMainScreen(
             modifiers = Modifier.fillMaxSize(),
             markers = mapMarkers,
             selectedUid = uiState.selectedDeviceUid,
+            selfMarkerToFrontToken = selfMarkerToFrontToken,
             tiandituKey = tiandituKey,
             tiandituStyle = tiandituStyle
         )
@@ -534,6 +539,7 @@ fun MapMainScreen(
                             Toast.makeText(context, "该设备暂无位置", Toast.LENGTH_SHORT).show()
                         }
                     } else {
+                        selfMarkerToFrontToken++
                         scope.launch {
                             val fresh = viewModel.locationProvider.requestCurrentLocationOnce()
                             if (fresh != null) {
