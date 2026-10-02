@@ -5,9 +5,16 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import android.content.Intent
+import android.provider.Settings
+import androidx.core.net.toUri
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -83,9 +90,12 @@ fun SettingsScreen(
         repository ?: DeviceRepository.getInstance(context)
     }
     val alertPrefs = remember { SeparationAlertPreferences(context) }
+    val liveNotificationPrefs = remember { com.reiyy.yuitag.data.LiveNotificationPreferences(context) }
 
     var liteMode by remember { mutableStateOf(service.isLiteModeEnabled()) }
     var debugMode by remember { mutableStateOf(service.isDebugModeEnabled()) }
+    var liveNotificationEnabled by remember { mutableStateOf(liveNotificationPrefs.isLiveNotificationEnabled()) }
+    var isLiveSupported by remember { mutableStateOf(com.reiyy.yuitag.data.LiveNotificationPreferences.isSystemSupported(context)) }
     var endpointUrl by remember { mutableStateOf(service.getEndpointUrl()) }
     var alertMasterEnabled by remember { mutableStateOf(alertPrefs.isMasterEnabled()) }
     var alertTriggerLevel by remember { mutableStateOf(alertPrefs.getTriggerLevel()) }
@@ -111,6 +121,8 @@ fun SettingsScreen(
     LifecycleResumeEffect(Unit) {
         liteMode = service.isLiteModeEnabled()
         debugMode = service.isDebugModeEnabled()
+        liveNotificationEnabled = liveNotificationPrefs.isLiveNotificationEnabled()
+        isLiveSupported = com.reiyy.yuitag.data.LiveNotificationPreferences.isSystemSupported(context)
         endpointUrl = service.getEndpointUrl()
         alertMasterEnabled = alertPrefs.isMasterEnabled()
         alertTriggerLevel = alertPrefs.getTriggerLevel()
@@ -157,6 +169,47 @@ fun SettingsScreen(
                         if (enabled) onNavigateToLiteMain() else onNavigateToFullMain()
                     }
                 )
+                HorizontalDivider()
+                SettingsSwitchRow(
+                    icon = Icons.Outlined.Radar,
+                    title = "实况通知 (实验性)",
+                    subtitle = if (liveNotificationEnabled) {
+                        "已开启 (${com.reiyy.yuitag.data.LiveNotificationPreferences.getDriverName(context)})"
+                    } else "已关闭",
+                    checked = liveNotificationEnabled,
+                    onCheckedChange = { enabled ->
+                        liveNotificationEnabled = enabled
+                        liveNotificationPrefs.setLiveNotificationEnabled(enabled)
+                    }
+                )
+                if (liveNotificationEnabled && isLiveSupported) {
+                    val isFlymePermissionGranted = remember(liveNotificationEnabled) {
+                        com.reiyy.yuitag.data.LiveNotificationPreferences.isFlymeSystemLiveNotificationEnabled(context)
+                    }
+                    if (!isFlymePermissionGranted && com.reiyy.yuitag.data.LiveNotificationPreferences.isFlymeDevice()) {
+                        Text(
+                            text = "⚠️ 魅族系统实况通知权限似乎未开启，点击此处前往系统设置允许",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    try {
+                                        val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                            putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (_: Exception) {
+                                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            data = "package:${context.packageName}".toUri()
+                                        }
+                                        context.startActivity(intent)
+                                    }
+                                }
+                                .padding(horizontal = 16.dp, vertical = 6.dp)
+                        )
+                    }
+                }
                 HorizontalDivider()
                 SettingsSwitchRow(
                     icon = Icons.Outlined.BugReport,

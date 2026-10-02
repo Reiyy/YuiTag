@@ -93,12 +93,29 @@ fun FindScreen(
     onExit: () -> Unit,
     viewModel: FindViewModel = viewModel()
 ) {
+    var hasExited by remember { mutableStateOf(false) }
+    val safeExit: () -> Unit = {
+        if (!hasExited) {
+            hasExited = true
+            onExit()
+        }
+    }
+
+    val shouldExit by viewModel.shouldExit.collectAsState()
+    LaunchedEffect(shouldExit) {
+        if (shouldExit) {
+            safeExit()
+        }
+    }
+
     LaunchedEffect(uid) { viewModel.initialize(uid) }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                viewModel.initialize(uid)
+                if (!viewModel.shouldExit.value && !hasExited) {
+                    viewModel.initialize(uid)
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -351,7 +368,7 @@ fun FindScreen(
                 icon = Icons.Default.Close,
                 label = "退出",
                 bgColor = Color.White.copy(alpha = 0.15f),
-                onClick = { viewModel.exitFinder(); onExit() }
+                onClick = { viewModel.exitFinder(); safeExit() }
             )
 
             // 手电筒

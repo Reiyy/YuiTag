@@ -1,9 +1,12 @@
 package com.reiyy.yuitag.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.reiyy.yuitag.MainActivity
+import com.reiyy.yuitag.ble.FileLog
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -76,6 +79,36 @@ fun YuiTagNavGraph(
     repository: DeviceRepository,
     liteMode: Boolean = false
 ) {
+    val pendingRoute by MainActivity.pendingNavigationRoute.collectAsState()
+    LaunchedEffect(pendingRoute) {
+        val targetRoute = pendingRoute ?: return@LaunchedEffect
+        MainActivity.pendingNavigationRoute.value = null
+
+        val currentDestination = navController.currentBackStackEntry?.destination
+        val currentUid = navController.currentBackStackEntry?.arguments?.getString("uid")
+
+        val targetUid = if (targetRoute.startsWith("find/")) {
+            targetRoute.removePrefix("find/")
+        } else null
+
+        val isAlreadyOnTargetFind = targetUid != null &&
+            currentDestination?.route == Routes.FIND &&
+            currentUid == targetUid
+
+        if (!isAlreadyOnTargetFind) {
+            try {
+                FileLog.i("NavGraph", "正在跳转目标路由: $targetRoute (当前 destination=${currentDestination?.route}, uid=$currentUid)")
+                navController.navigate(targetRoute) {
+                    launchSingleTop = true
+                }
+            } catch (e: Exception) {
+                FileLog.e("NavGraph", "导航到 $targetRoute 失败", e)
+            }
+        } else {
+            FileLog.i("NavGraph", "已在目标设备查找页: $targetUid，保持当前活跃查找会话")
+        }
+    }
+
     NavHost(
         navController = navController,
         startDestination = if (liteMode) Routes.LITE_MAIN else Routes.MAIN

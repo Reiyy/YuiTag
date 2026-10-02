@@ -16,8 +16,10 @@ import com.reiyy.yuitag.ble.FileLog
 import com.reiyy.yuitag.data.DeviceRepository
 import com.reiyy.yuitag.data.local.YuiTagDatabase
 import com.reiyy.yuitag.service.SeparationAlertService
+import com.reiyy.yuitag.ui.navigation.Routes
 import com.reiyy.yuitag.ui.theme.YuiTagTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -86,6 +88,12 @@ class MainActivity : ComponentActivity() {
 
         // 同步遗落提醒后台守护服务状态
         SeparationAlertService.syncServiceState(this)
+
+        // 初始化实况通知渠道
+        com.reiyy.yuitag.notification.live.LiveNotificationManager.init(this)
+
+        // 解析冷启动通知跳转
+        handleIntent(intent)
 
         setContent {
             YuiTagTheme {
@@ -156,5 +164,28 @@ class MainActivity : ComponentActivity() {
             // 已全部授予
             onResult(true)
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent == null) return
+        val route = intent.getStringExtra(EXTRA_NAV_ROUTE)
+            ?: intent.getStringExtra(EXTRA_DEVICE_UID)?.let { Routes.findRoute(it) }
+        if (!route.isNullOrBlank()) {
+            FileLog.i("MainActivity", "收到通知路由跳转目标: $route")
+            pendingNavigationRoute.value = route
+        }
+    }
+
+    companion object {
+        const val EXTRA_NAV_ROUTE = "com.reiyy.yuitag.extra.NAV_ROUTE"
+        const val EXTRA_DEVICE_UID = "com.reiyy.yuitag.extra.DEVICE_UID"
+
+        val pendingNavigationRoute = MutableStateFlow<String?>(null)
     }
 }

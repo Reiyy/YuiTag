@@ -2,6 +2,7 @@ package com.reiyy.yuitag.viewmodel
 
 import android.app.Application
 import android.bluetooth.le.ScanResult
+import android.graphics.Bitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.reiyy.yuitag.ble.BleScanner
@@ -9,9 +10,16 @@ import com.reiyy.yuitag.ble.FileLog
 import com.reiyy.yuitag.ble.FindSession
 import com.reiyy.yuitag.ble.YuiTagProtocol
 import com.reiyy.yuitag.data.DeviceRepository
+import com.reiyy.yuitag.data.LiveNotificationPreferences
+import com.reiyy.yuitag.data.local.DeviceType
 import com.reiyy.yuitag.data.theme.DeviceTheme
 import com.reiyy.yuitag.model.RippleState
+import com.reiyy.yuitag.notification.live.LiveFindPayload
+import com.reiyy.yuitag.notification.live.LiveNotificationActionReceiver
+import com.reiyy.yuitag.notification.live.LiveNotificationManager
+import com.reiyy.yuitag.util.TagIconHelper
 import com.reiyy.yuitag.util.vibrateShort
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -42,6 +50,31 @@ enum class FindTrend {
 class FindViewModel(application: Application) : AndroidViewModel(application) {
 
     private val scanner = BleScanner(application)
+    private val liveNotificationPrefs = LiveNotificationPreferences(application)
+    private val liveNotificationManager = LiveNotificationManager.getInstance(application)
+
+    private val _shouldExit = MutableStateFlow(false)
+    val shouldExit: StateFlow<Boolean> = _shouldExit.asStateFlow()
+
+    private var cachedDeviceIconBitmap: Bitmap? = null
+    private fun dispatchLiveNotification(forceImmediate: Boolean = false) {
+        val uid = targetUid ?: return
+        if (!liveNotificationPrefs.isLiveNotificationEnabled()) return
+        val state = _uiState.value
+
+        val payload = LiveFindPayload(
+            deviceUid = uid,
+            deviceName = state.deviceName,
+            statusText = state.statusText,
+            distanceLevelText = state.statusText,
+            rssi = if (state.rssi != 0) state.rssi else -100,
+            trendText = state.trendText,
+            isRinging = state.ringActive,
+            isConnected = state.searchState == FindSearchState.TRACKING,
+            customIconBitmap = cachedDeviceIconBitmap
+        )
+        liveNotificationManager.postFindUpdate(payload, forceImmediate)
+    }
 
     lateinit var repository: DeviceRepository
         private set
@@ -87,32 +120,71 @@ class FindViewModel(application: Application) : AndroidViewModel(application) {
     private var lastDirectionText = ""                         // 上一次方向文案（稳定<3s 时保留显示）
 
     fun initialize(deviceUid: String) {
+        _shouldExit.value = false
         if (targetUid != null) {
-            viewModelScope.launch {
+            viewModelScope.launch(Dispatchers.IO) {
                 val entity = repository.getDeviceEntity(deviceUid)
                 val themePath = entity?.themePath.orEmpty()
+                val deviceType = if (entity != null) DeviceType.fromLabel(entity.deviceType) else DeviceType.CUSTOM
+                val customIcon = entity?.customIcon.orEmpty()
+                if (cachedDeviceIconBitmap == null) {
+                    cachedDeviceIconBitmap = TagIconHelper.createTagIconBitmap(
+                        context = getApplication(),
+                        themePath = themePath,
+                        deviceType = deviceType,
+                        customIcon = customIcon
+                    )
+                }
                 _uiState.update { it.copy(
                     themePath = themePath,
                     theme = if (themePath.isNotEmpty()) repository.loadTheme(themePath) else null,
                     themeVersion = it.themeVersion + 1
                 ) }
+                dispatchLiveNotification()
             }
             return
         }
         targetUid = deviceUid
+
+        // 注册实况通知交互监听器
+        LiveNotificationActionReceiver.activeFindListener = object : LiveNotificationActionReceiver.LiveFindActionListener {
+            override fun onToggleRing(deviceUid: String) {
+                if (targetUid == deviceUid) {
+                    sendRing()
+                }
+            }
+            override fun onExitFind(deviceUid: String) {
+                if (targetUid == deviceUid) {
+                    exitFinder()
+                }
+            }
+        }
 
         val device = repository.getDevice(deviceUid)
         _uiState.update { it.copy(
             deviceName = device?.customName?.ifEmpty { device.name } ?: "YuiTag",
             isBound = device?.isBound ?: false
         ) }
-        viewModelScope.launch {
+        dispatchLiveNotification()
+
+        viewModelScope.launch(Dispatchers.IO) {
             val entity = repository.getDeviceEntity(deviceUid)
             val themePath = entity?.themePath.orEmpty()
+            val deviceType = if (entity != null) DeviceType.fromLabel(entity.deviceType) else (device?.deviceType ?: DeviceType.CUSTOM)
+            val customIcon = entity?.customIcon ?: device?.customIcon.orEmpty()
+
+            cachedDeviceIconBitmap = TagIconHelper.createTagIconBitmap(
+                context = getApplication(),
+                themePath = themePath,
+                deviceType = deviceType,
+                customIcon = customIcon
+            )
+
             _uiState.update { it.copy(
                 themePath = themePath,
                 theme = if (themePath.isNotEmpty()) repository.loadTheme(themePath) else null
             ) }
+            dispatchLiveNotification()
         }
 
         // 已有活跃会话（如主页建立）则直接复用免扫描；否则走广播扫描发现
@@ -146,6 +218,7 @@ class FindViewModel(application: Application) : AndroidViewModel(application) {
             rippleState = RippleState.SEARCHING,
             trendText = ""
         ) }
+        dispatchLiveNotification()
 
         scanJob?.cancel()
         scanJob = viewModelScope.launch {
@@ -183,6 +256,7 @@ class FindViewModel(application: Application) : AndroidViewModel(application) {
             statusText = "连接中...",
             searchState = FindSearchState.CONNECTING
         ) }
+        dispatchLiveNotification()
         connectAndStartTracking()
     }
 
@@ -204,6 +278,7 @@ class FindViewModel(application: Application) : AndroidViewModel(application) {
             searchState = FindSearchState.TRACKING,
             rippleState = RippleState.FOUND
         ) }
+        dispatchLiveNotification()
         existing.sendFindMode(true)
         // 复用会话可能已接近固件心跳超时，立即补发首包心跳再进入周期循环
         existing.startHeartbeat(viewModelScope, immediateFirst = true)
@@ -257,6 +332,7 @@ class FindViewModel(application: Application) : AndroidViewModel(application) {
                     rippleState = RippleState.FOUND,
                     ringActive = false
                 ) }
+                dispatchLiveNotification()
             }.onFailure { e ->
                 FileLog.e("FindVM", "查找连接失败: ${e.message}")
                 foundDeviceAddress = null
@@ -265,6 +341,7 @@ class FindViewModel(application: Application) : AndroidViewModel(application) {
                     searchState = FindSearchState.SCANNING,
                     rippleState = RippleState.SEARCHING
                 ) }
+                dispatchLiveNotification()
                 // 重新开始搜索
                 startSearch()
             }
@@ -411,6 +488,7 @@ class FindViewModel(application: Application) : AndroidViewModel(application) {
             rippleState = out.rippleState,
             trendText = out.trendText
         ) }
+        dispatchLiveNotification()
     }
 
     /** 最小二乘斜率趋势判断（必须在 rssiLock 内调用） */
@@ -467,6 +545,7 @@ class FindViewModel(application: Application) : AndroidViewModel(application) {
                 session.sendRing(true)
                 _uiState.update { it.copy(ringActive = true) }
             }
+            dispatchLiveNotification(forceImmediate = true)
         } else {
             // 回退：经由统一会话发送响铃（fire-and-forget，与已连接路径行为一致）
             val uid = targetUid ?: return
@@ -480,16 +559,25 @@ class FindViewModel(application: Application) : AndroidViewModel(application) {
                     Unit
                 }
                 _uiState.update { it.copy(ringBusy = false, ringActive = result.isSuccess) }
+                dispatchLiveNotification(forceImmediate = true)
             }
         }
     }
 
     fun exitFinder() {
+        _shouldExit.value = true
         // 无条件清除查找页持有标记（会话可能已断开，须在 session 判空之外，防标记泄漏）
         val uid = targetUid
+        targetUid = null
+        cachedDeviceIconBitmap = null
         if (::repository.isInitialized && uid != null) {
             repository.bleConnectionManager.setFindPageActive(uid, false)
         }
+        if (uid != null) {
+            liveNotificationManager.cancelFind(uid)
+        }
+        LiveNotificationActionReceiver.activeFindListener = null
+
         val session = findSession
         if (session != null && uid != null) {
             _uiState.update { it.copy(searchState = FindSearchState.EXITING) }
@@ -534,6 +622,8 @@ class FindViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun cleanup() {
+        targetUid?.let { liveNotificationManager.cancelFind(it) }
+        LiveNotificationActionReceiver.activeFindListener = null
         scanJob?.cancel()
         rssiJob?.cancel()
         gattRssiFallback?.cancel()

@@ -71,6 +71,8 @@ FindMy的定位信息是否实时和准确取决于周边Apple设备的密度，
 FindMy兼容提供一定的全球定位查找能力  
 多参数可自定义的配套查找App  
 支持OTA固件更新(Sparks不支持)  
+遗落提醒(实验性)
+实况通知(仅Flyme支持)
 
 **待实现：**  
 [固件]添加CH59x芯片支持  
@@ -97,6 +99,7 @@ Kimi K3
 
 - [lovelyelfpop/macless-haystack](https://gitee.com/lovelyelfpop/macless-haystack): 提供macless-haystack后端，和FindMy实现参考
 - [acalatrava/openhaystack-firmware](https://github.com/acalatrava/openhaystack-firmware): 提供FindMy数据格式和固件编写参考
+- [lightStarrr/starSchedule](https://github.com/lightStarrr/starSchedule): 提供魅族Flyme实况通知的实现参考
 
 ## 许可证
 
