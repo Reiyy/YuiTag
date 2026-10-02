@@ -1,5 +1,6 @@
 package com.reiyy.yuitag.service
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.AlarmManager
 import android.app.Notification
@@ -18,6 +19,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
@@ -104,6 +106,23 @@ class SeparationAlertService : Service() {
 
         private const val REQUEST_CODE_ALARM = 72202
         private const val ACTION_EVALUATE_ALARM = "com.reiyy.yuitag.action.EVALUATE_SEPARATION_ALARM"
+        const val ACTION_REFRESH_WIFI = "com.reiyy.yuitag.action.REFRESH_WIFI"
+        const val EXTRA_KNOWN_SSID = "com.reiyy.yuitag.extra.KNOWN_SSID"
+
+        fun refreshWifiState(context: Context, knownSsid: String? = null) {
+            val appContext = context.applicationContext
+            val intent = Intent(appContext, SeparationAlertService::class.java).apply {
+                action = ACTION_REFRESH_WIFI
+                if (!knownSsid.isNullOrBlank()) {
+                    putExtra(EXTRA_KNOWN_SSID, knownSsid)
+                }
+            }
+            try {
+                appContext.startService(intent)
+            } catch (e: Exception) {
+                FileLog.w(TAG, "请求刷新 Wi-Fi 状态失败: ${e.message}")
+            }
+        }
 
         fun syncServiceState(context: Context) {
             val appContext = context.applicationContext
@@ -180,6 +199,7 @@ class SeparationAlertService : Service() {
     @Volatile
     private var currentWifiSsid: String? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var lastWifiSelfHealMs = 0L
 
     private val bluetoothStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -248,6 +268,18 @@ class SeparationAlertService : Service() {
             }
         }
 
+        // 观察 Wi-Fi 白名单开关与列表变更，即时触发告警重评估
+        serviceScope.launch {
+            preferences.safeWifiEnabledFlow().collect {
+                evalHandler?.post { evaluateTrackedTags() }
+            }
+        }
+        serviceScope.launch {
+            preferences.safeWifiSetFlow().collect {
+                evalHandler?.post { evaluateTrackedTags() }
+            }
+        }
+
         lastAnyScanResultMs = SystemClock.elapsedRealtime()
         FileLog.i(TAG, "遗落监测前台服务已启动")
     }
@@ -258,8 +290,33 @@ class SeparationAlertService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+
+        // 保持前台服务存活并同步最新的前台服务类型（如可能新获得的定位权限）
+        startServiceForeground(monitoredTags.size)
+
         if (intent?.action == ACTION_EVALUATE_ALARM) {
             evalHandler?.post { evaluateTrackedTags() }
+        } else if (intent?.action == ACTION_REFRESH_WIFI) {
+            val knownSsid = intent.getStringExtra(EXTRA_KNOWN_SSID)
+            evalHandler?.post {
+                if (!knownSsid.isNullOrBlank()) {
+                    val sanitized = WifiNetworkUtil.sanitizeSsid(knownSsid)
+                    if (sanitized != null) {
+                        val prevSsid = currentWifiSsid
+                        currentWifiSsid = sanitized
+                        if (prevSsid != sanitized) {
+                            FileLog.i(TAG, "外部同步 Wi-Fi SSID: [${prevSsid ?: "无"}] -> [$sanitized]")
+                        }
+                    }
+                } else if (currentWifiSsid == null) {
+                    val freshSsid = WifiNetworkUtil.getCurrentlyConnectedWifiSsid(this)
+                    if (freshSsid != null) {
+                        currentWifiSsid = freshSsid
+                        FileLog.i(TAG, "外部触发 Wi-Fi 补拉成功: [$freshSsid]")
+                    }
+                }
+                evaluateTrackedTags()
+            }
         }
         return START_STICKY
     }
@@ -297,10 +354,18 @@ class SeparationAlertService : Service() {
                 val wifiInfo = networkCapabilities.transportInfo as? WifiInfo
                 val cleanSsid = WifiNetworkUtil.sanitizeSsid(wifiInfo?.ssid)
                 val prevSsid = currentWifiSsid
-                currentWifiSsid = cleanSsid
-                if (prevSsid != cleanSsid) {
-                    FileLog.i(TAG, "Wi-Fi 状态变更: [${prevSsid ?: "无"}] -> [${cleanSsid ?: "无"}]")
-                    evalHandler?.post { evaluateTrackedTags() }
+                if (cleanSsid != null) {
+                    currentWifiSsid = cleanSsid
+                    if (prevSsid != cleanSsid) {
+                        FileLog.i(TAG, "Wi-Fi 状态变更: [${prevSsid ?: "无"}] -> [$cleanSsid]")
+                        evalHandler?.post { evaluateTrackedTags() }
+                    }
+                } else if (!networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                    currentWifiSsid = null
+                    if (prevSsid != null) {
+                        FileLog.i(TAG, "当前网络非 Wi-Fi，清除 SSID: [$prevSsid]")
+                        evalHandler?.post { evaluateTrackedTags() }
+                    }
                 }
             }
 
@@ -317,8 +382,11 @@ class SeparationAlertService : Service() {
         try {
             cm.registerNetworkCallback(request, callback)
             networkCallback = callback
-            currentWifiSsid = WifiNetworkUtil.getCurrentlyConnectedWifiSsid(this)
-            FileLog.i(TAG, "Wi-Fi 状态监听已就绪，当前 SSID: [${currentWifiSsid ?: "未连接/未知"}]")
+            val initialSsid = WifiNetworkUtil.getCurrentlyConnectedWifiSsid(this)
+            if (initialSsid != null) {
+                currentWifiSsid = initialSsid
+            }
+            FileLog.i(TAG, "Wi-Fi 状态监听已就绪，当前 SSID: [${currentWifiSsid ?: "等待回调解析"}]")
         } catch (e: Exception) {
             FileLog.e(TAG, "注册 Wi-Fi 监听失败: ${e.message}", e)
         }
@@ -590,6 +658,24 @@ class SeparationAlertService : Service() {
 
         val safeWifiEnabled = preferences.isSafeWifiEnabled()
         val safeWifiSet = if (safeWifiEnabled) preferences.getSafeWifiSet() else emptySet()
+
+        // Wi-Fi 状态自愈与清理：断开时及时置空，连接但为空时尝试主动自愈补拉
+        val isWifiActive = WifiNetworkUtil.isWifiConnected(this)
+        if (!isWifiActive) {
+            if (currentWifiSsid != null) {
+                currentWifiSsid = null
+            }
+        } else if (safeWifiEnabled && safeWifiSet.isNotEmpty() && currentWifiSsid == null) {
+            if (now - lastWifiSelfHealMs >= 5000L) {
+                lastWifiSelfHealMs = now
+                val healedSsid = WifiNetworkUtil.getCurrentlyConnectedWifiSsid(this)
+                if (healedSsid != null) {
+                    currentWifiSsid = healedSsid
+                    FileLog.i(TAG, "Wi-Fi SSID 自愈获取成功: [$healedSsid]")
+                }
+            }
+        }
+
         val isUnderSafeWifi = safeWifiEnabled && currentWifiSsid != null && safeWifiSet.contains(currentWifiSsid)
 
         for ((uid, state) in monitoredTags) {
@@ -606,10 +692,14 @@ class SeparationAlertService : Service() {
                 continue
             }
 
-            // 安全 Wi-Fi 免打扰豁免：手机连接到特定 Wi-Fi 时不进行遗落监测
+            // 安全 Wi-Fi 免打扰豁免：手机连接到特定 Wi-Fi 时不进行遗落监测并解除已有警报
             if (isUnderSafeWifi) {
-                if (!state.isAlerted) {
-                    state.triggerStartTimeMs = null
+                state.triggerStartTimeMs = null
+                state.recoveryStartTimeMs = null
+                if (state.isAlerted) {
+                    state.isAlerted = false
+                    notificationManager.cancel(getAlertNotificationId(state.uid))
+                    FileLog.i(TAG, "处于安全 Wi-Fi [$currentWifiSsid]，解除警报: ${state.displayName}")
                 }
                 continue
             }
@@ -663,7 +753,7 @@ class SeparationAlertService : Service() {
             triggerBoostScan(boostReason)
         }
 
-        scheduleNextDozeWakeAlarm(now, configuredLevel, userDelayMs)
+        scheduleNextDozeWakeAlarm(now, configuredLevel, userDelayMs, isUnderSafeWifi)
     }
 
     private fun handleRecovery(state: TrackState, now: Long) {
@@ -678,7 +768,8 @@ class SeparationAlertService : Service() {
         if (recoverySustainedMs >= RECOVERY_HOLD_TIME_MS) {
             state.isAlerted = false
             state.recoveryStartTimeMs = null
-            FileLog.i(TAG, "信号恢复稳定，解除内部告警: ${state.displayName}")
+            notificationManager.cancel(getAlertNotificationId(state.uid))
+            FileLog.i(TAG, "信号恢复稳定，解除警报通知: ${state.displayName}")
         }
     }
 
@@ -727,8 +818,13 @@ class SeparationAlertService : Service() {
     private fun scheduleNextDozeWakeAlarm(
         now: Long,
         configuredLevel: SeparationAlertLevel,
-        userDelayMs: Long
+        userDelayMs: Long,
+        isUnderSafeWifi: Boolean = false
     ) {
+        if (isUnderSafeWifi) {
+            cancelWakeAlarm()
+            return
+        }
         val tagsNeedingAlarm = monitoredTags.values.filter { !it.isAlerted || it.recoveryStartTimeMs != null }
         if (tagsNeedingAlarm.isEmpty() || !preferences.isMasterEnabled()) {
             cancelWakeAlarm()
@@ -894,10 +990,20 @@ class SeparationAlertService : Service() {
     private fun startServiceForeground(monitoredCount: Int) {
         val notification = buildOngoingNotification(monitoredCount)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val hasLocationPermission = ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+
+            var fgsType = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            if (hasLocationPermission) {
+                fgsType = fgsType or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            }
             startForeground(
                 NOTIFICATION_ID_ONGOING,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                fgsType
             )
         } else {
             startForeground(NOTIFICATION_ID_ONGOING, notification)

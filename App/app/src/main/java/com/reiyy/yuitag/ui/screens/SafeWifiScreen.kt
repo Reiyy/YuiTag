@@ -69,6 +69,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.reiyy.yuitag.data.SeparationAlertPreferences
+import com.reiyy.yuitag.service.SeparationAlertService
 import com.reiyy.yuitag.util.WifiNetworkUtil
 import kotlinx.coroutines.launch
 
@@ -109,14 +110,19 @@ fun SafeWifiScreen(
         val callback = object : ConnectivityManager.NetworkCallback(FLAG_INCLUDE_LOCATION_INFO) {
             override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
                 val wifiInfo = networkCapabilities.transportInfo as? WifiInfo
-                currentSsid = WifiNetworkUtil.sanitizeSsid(wifiInfo?.ssid)
+                val newSsid = WifiNetworkUtil.sanitizeSsid(wifiInfo?.ssid)
+                currentSsid = newSsid
                 isWifiActive = true
                 isLocationEnabled = WifiNetworkUtil.isLocationEnabled(context)
+                if (newSsid != null) {
+                    SeparationAlertService.refreshWifiState(context, newSsid)
+                }
             }
 
             override fun onLost(network: Network) {
                 currentSsid = null
                 isWifiActive = false
+                SeparationAlertService.refreshWifiState(context)
             }
         }
 
@@ -309,6 +315,7 @@ fun SafeWifiScreen(
                                             currentSsid?.let { ssid ->
                                                 val added = preferences.addSafeWifi(ssid)
                                                 if (added) {
+                                                    SeparationAlertService.refreshWifiState(context, ssid)
                                                     coroutineScope.launch {
                                                         snackbarHostState.showSnackbar("已添加「$ssid」为白名单网络")
                                                     }
@@ -407,7 +414,7 @@ fun SafeWifiScreen(
                     }
                 } else {
                     items(safeWifiSet.toList(), key = { it }) { ssid ->
-                        val isCurrent = ssid.equals(currentSsid, ignoreCase = true)
+                        val isCurrent = ssid == currentSsid
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(16.dp),
@@ -534,7 +541,7 @@ fun SafeWifiScreen(
                         ) {
                             items(displayList, key = { it }) { ssid ->
                                 val isAdded = safeWifiSet.contains(ssid)
-                                val isCurrent = ssid.equals(currentSsid, ignoreCase = true)
+                                val isCurrent = ssid == currentSsid
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
                                     color = if (isAdded) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surface,
@@ -543,6 +550,7 @@ fun SafeWifiScreen(
                                         .clickable(enabled = !isAdded) {
                                             val added = preferences.addSafeWifi(ssid)
                                             if (added) {
+                                                SeparationAlertService.refreshWifiState(context, currentSsid)
                                                 coroutineScope.launch {
                                                     snackbarHostState.showSnackbar("已添加「$ssid」")
                                                 }
@@ -645,6 +653,9 @@ fun SafeWifiScreen(
                             isError = true
                         } else {
                             val added = preferences.addSafeWifi(cleaned)
+                            if (added) {
+                                SeparationAlertService.refreshWifiState(context, currentSsid)
+                            }
                             showManualAddDialog = false
                             coroutineScope.launch {
                                 if (added) {
@@ -679,6 +690,7 @@ fun SafeWifiScreen(
                 TextButton(
                     onClick = {
                         preferences.removeSafeWifi(ssidToDelete)
+                        SeparationAlertService.refreshWifiState(context, currentSsid)
                         pendingDeleteSsid = null
                         coroutineScope.launch {
                             snackbarHostState.showSnackbar("已移除「$ssidToDelete」")

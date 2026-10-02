@@ -248,6 +248,7 @@ fun SettingsScreen(
                     onCheckedChange = { enabled ->
                         alertSafeWifiEnabled = enabled
                         alertPrefs.setSafeWifiEnabled(enabled)
+                        SeparationAlertService.refreshWifiState(context)
                     }
                 )
                 if (alertSafeWifiEnabled) {

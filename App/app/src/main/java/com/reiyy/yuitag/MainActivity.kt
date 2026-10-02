@@ -105,6 +105,7 @@ class MainActivity : ComponentActivity() {
         if (bluetoothAdapter?.isEnabled != true) {
             requestBluetoothEnable()
         }
+        SeparationAlertService.refreshWifiState(this)
     }
 
     private fun requestBluetoothEnable() {
