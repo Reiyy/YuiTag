@@ -71,26 +71,47 @@ uint8_t platform_read_battery(void)
         return 0;
     }
 
-    struct adc_sequence seq = {
-        .channels      = BIT(0),
-        .buffer        = &s_batt_raw,
-        .buffer_size   = sizeof(s_batt_raw),
-        .resolution    = 14,
-        .oversampling  = 4,
-        .calibrate     = !s_calibrated,
-    };
-    if (adc_read(adc, &seq) != 0) {
-        return 0;
-    }
-    s_calibrated = true;
+    // 快速采样 3 次取中位数，滤除瞬态单点毛刺
+    int32_t mv_samples[3];
+    for (int i = 0; i < 3; i++) {
+        struct adc_sequence seq = {
+            .channels      = BIT(0),
+            .buffer        = &s_batt_raw,
+            .buffer_size   = sizeof(s_batt_raw),
+            .resolution    = 14,
+            .oversampling  = 4,
+            .calibrate     = !s_calibrated,
+        };
+        if (adc_read(adc, &seq) != 0) {
+            return 0;
+        }
+        s_calibrated = true;
 
-    int32_t val = s_batt_raw;
-    if (adc_raw_to_millivolts(adc_ref_internal(adc), ch_cfg.gain,
-                              seq.resolution, &val) != 0) {
-        return 0;
+        int32_t val = s_batt_raw;
+        if (adc_raw_to_millivolts(adc_ref_internal(adc), ch_cfg.gain,
+                                  seq.resolution, &val) != 0) {
+            return 0;
+        }
+        mv_samples[i] = val;
     }
 
-    return yuitag_battery_mv_to_percent((uint32_t)val);
+    // 取 3 点中位数
+    int32_t median = mv_samples[0];
+    if ((mv_samples[0] <= mv_samples[1] && mv_samples[1] <= mv_samples[2]) ||
+        (mv_samples[2] <= mv_samples[1] && mv_samples[1] <= mv_samples[0])) {
+        median = mv_samples[1];
+    } else if ((mv_samples[1] <= mv_samples[2] && mv_samples[2] <= mv_samples[0]) ||
+               (mv_samples[0] <= mv_samples[2] && mv_samples[2] <= mv_samples[1])) {
+        median = mv_samples[2];
+    } else {
+        median = mv_samples[0];
+    }
+
+    if (median < 0) {
+        median = 0;
+    }
+
+    return yuitag_battery_mv_to_percent((uint32_t)median);
 }
 
 // ============================================================

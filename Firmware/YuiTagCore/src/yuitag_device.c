@@ -154,6 +154,9 @@ bool yuitag_device_tick(YuiTagDevice *dev)
     }
 
     if ((now - dev->lastBatteryCheckMs) >= BATTERY_CHECK_INTERVAL_MS) {
+        if (dev->ringActive) {
+            return false;
+        }
         dev->batteryLevel = platform_read_battery();
         dev->lastBatteryCheckMs = now;
         platform_log("[BATT] Periodic: %d%%", dev->batteryLevel);
@@ -965,14 +968,48 @@ void yuitag_device_handle_param_write(YuiTagDevice *dev, const uint8_t *inData, 
     resp->len = 2;
 }
 
+typedef struct {
+    uint16_t mv;
+    uint8_t  pct;
+} batt_curve_point_t;
+
+// 基于松下 CR2032 官方低功耗微安级放电特性的标准放电曲线 (以 1% 精度连续插值)
+static const batt_curve_point_t BATT_CURVE[] = {
+    { 3000, 100 },
+    { 2880,  80 },
+    { 2800,  60 },
+    { 2720,  40 },
+    { 2600,  20 },
+    { 2450,  10 },
+    { 2000,   0 }
+};
+
+#define BATT_CURVE_POINTS (sizeof(BATT_CURVE) / sizeof(BATT_CURVE[0]))
+
 uint8_t yuitag_battery_mv_to_percent(uint32_t battery_mv)
 {
-    if (battery_mv >= BATTERY_FULL_MV) {
+    if (battery_mv >= BATT_CURVE[0].mv) {
         return 100;
     }
-    if (battery_mv <= BATTERY_EMPTY_MV) {
+    if (battery_mv <= BATT_CURVE[BATT_CURVE_POINTS - 1].mv) {
         return 0;
     }
-    return (uint8_t)(((battery_mv - BATTERY_EMPTY_MV) * 100U)
-                     / (BATTERY_FULL_MV - BATTERY_EMPTY_MV));
+
+    for (size_t i = 0; i < BATT_CURVE_POINTS - 1; i++) {
+        if (battery_mv >= BATT_CURVE[i + 1].mv) {
+            uint32_t v_high = BATT_CURVE[i].mv;
+            uint32_t v_low  = BATT_CURVE[i + 1].mv;
+            uint32_t p_high = BATT_CURVE[i].pct;
+            uint32_t p_low  = BATT_CURVE[i + 1].pct;
+
+            uint8_t pct = (uint8_t)(p_low + ((battery_mv - v_low) * (p_high - p_low)) / (v_high - v_low));
+            // 只要电压仍高于 2000mV 截止门限，至少保留 1% 电量显示
+            if (pct == 0 && battery_mv > BATT_CURVE[BATT_CURVE_POINTS - 1].mv) {
+                pct = 1;
+            }
+            return pct;
+        }
+    }
+
+    return 0;
 }

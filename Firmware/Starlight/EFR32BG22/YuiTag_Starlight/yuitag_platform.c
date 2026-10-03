@@ -123,21 +123,26 @@ uint8_t platform_read_battery(void)
         return 0;
     }
 
-    IADC0->EN_SET = IADC_EN_EN;
-    IADC_clearInt(IADC0, IADC_IF_SINGLEDONE);
-    IADC_command(IADC0, iadcCmdStartSingle);
+    // 快速采样 3 次取中位数
+    uint32_t samples[3];
+    for (int i = 0; i < 3; i++) {
+        IADC0->EN_SET = IADC_EN_EN;
+        IADC_clearInt(IADC0, IADC_IF_SINGLEDONE);
+        IADC_command(IADC0, iadcCmdStartSingle);
 
-    uint32_t timeout = 1000000U;
-    while ((IADC0->IF & IADC_IF_SINGLEDONE) == 0U) {
-        if (--timeout == 0U) {
-            IADC0->EN_CLR = IADC_EN_EN;
-            (void)sl_clock_manager_disable_bus_clock(SL_BUS_CLOCK_IADC0);
-            return 0;
+        uint32_t timeout = 100000U;
+        while ((IADC0->IF & IADC_IF_SINGLEDONE) == 0U) {
+            if (--timeout == 0U) {
+                IADC0->EN_CLR = IADC_EN_EN;
+                (void)sl_clock_manager_disable_bus_clock(SL_BUS_CLOCK_IADC0);
+                return 0;
+            }
         }
-    }
 
-    IADC_Result_t result = IADC_pullSingleFifoResult(IADC0);
-    IADC_clearInt(IADC0, IADC_IF_SINGLEDONE);
+        IADC_Result_t result = IADC_pullSingleFifoResult(IADC0);
+        IADC_clearInt(IADC0, IADC_IF_SINGLEDONE);
+        samples[i] = result.data;
+    }
 
 #if defined(IADC_STATUS_SYNCBUSY)
     while ((IADC0->STATUS & IADC_STATUS_SYNCBUSY) != 0U) {
@@ -148,9 +153,21 @@ uint8_t platform_read_battery(void)
     IADC0->EN_CLR = IADC_EN_EN;
     (void)sl_clock_manager_disable_bus_clock(SL_BUS_CLOCK_IADC0);
 
+    // 取 3 点中位数
+    uint32_t median = samples[0];
+    if ((samples[0] <= samples[1] && samples[1] <= samples[2]) ||
+        (samples[2] <= samples[1] && samples[1] <= samples[0])) {
+        median = samples[1];
+    } else if ((samples[1] <= samples[2] && samples[2] <= samples[0]) ||
+               (samples[0] <= samples[2] && samples[2] <= samples[1])) {
+        median = samples[2];
+    } else {
+        median = samples[0];
+    }
+
     // 计算电池电压 (mV)：AVDD/4 分压输入，内部 ~1.21V 基准，12-bit 分辨率
-    // voltage = (result * 4 * vref) / 4095
-    uint32_t battery_mv = ((4U * result.data * s_iadc_vref_mv) + (ADC_RESULT_MAX / 2U))
+    // voltage = (median * 4 * vref) / 4095
+    uint32_t battery_mv = ((4U * median * s_iadc_vref_mv) + (ADC_RESULT_MAX / 2U))
                           / ADC_RESULT_MAX;
 
     return yuitag_battery_mv_to_percent(battery_mv);

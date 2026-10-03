@@ -30,7 +30,7 @@
 
 // ---- Timeouts and polling ----
 #define HEARTBEAT_TIMEOUT_MS        120000
-#define BATTERY_CHECK_INTERVAL_MS   86400000UL
+#define BATTERY_CHECK_INTERVAL_MS   3600000UL   // 1 hour
 #define PERIODIC_CHECK_INTERVAL_MS  30000
 
 // ---- Connection parameters (Apple Accessory Design Guidelines) ----

@@ -53,6 +53,8 @@ static void bt_ready(int err)
             g_dev.findmyEnabled = false;
             platform_log("[FINDMY] Enable failed at boot, reverting flag");
             yuitag_ble_update_param_value(&g_dev);
+        } else {
+            yuitag_findmy_update_battery(g_dev.batteryLevel);
         }
     }
 #endif
