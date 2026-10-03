@@ -38,9 +38,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.reiyy.yuitag.data.FindMyQueryService
 import com.reiyy.yuitag.data.local.LocationEntity
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -54,8 +57,17 @@ fun LocationHistoryScreen(
     locations: List<LocationEntity>,
     isRefreshing: Boolean,
     onBack: () -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    isDebugMode: Boolean? = null
 ) {
+    val context = LocalContext.current
+    val service = remember(context) { FindMyQueryService(context) }
+    var effectiveDebugMode by remember { mutableStateOf(isDebugMode ?: service.isDebugModeEnabled()) }
+
+    LifecycleResumeEffect(isDebugMode) {
+        effectiveDebugMode = isDebugMode ?: service.isDebugModeEnabled()
+        onPauseOrDispose { }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -110,7 +122,7 @@ fun LocationHistoryScreen(
                 ) {
                     item { Spacer(Modifier.height(8.dp)) }
                     items(locations, key = { it.id }) { location ->
-                        LocationHistoryCard(location)
+                        LocationHistoryCard(location, isDebugMode = effectiveDebugMode)
                         Spacer(Modifier.height(8.dp))
                     }
                     item { Spacer(Modifier.height(8.dp)) }
@@ -121,7 +133,10 @@ fun LocationHistoryScreen(
 }
 
 @Composable
-private fun LocationHistoryCard(location: LocationEntity) {
+private fun LocationHistoryCard(
+    location: LocationEntity,
+    isDebugMode: Boolean = false
+) {
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()) }
     val timeText = dateFormat.format(Date(location.timestamp * 1000))
 
@@ -190,25 +205,27 @@ private fun LocationHistoryCard(location: LocationEntity) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(Modifier.width(16.dp))
-                Text(
-                    text = "置信度: ${location.confidence}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.width(16.dp))
-                Text(
-                    text = "计数器: ${location.counter}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (!location.payloadType.isNullOrBlank()) {
+                if (isDebugMode) {
                     Spacer(Modifier.width(16.dp))
                     Text(
-                        text = "负载: ${location.payloadType}",
+                        text = "置信度: ${location.confidence}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Spacer(Modifier.width(16.dp))
+                    Text(
+                        text = "计数器: ${location.counter}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (!location.payloadType.isNullOrBlank()) {
+                        Spacer(Modifier.width(16.dp))
+                        Text(
+                            text = "负载: ${location.payloadType}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
                 Spacer(Modifier.width(16.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -227,9 +244,10 @@ private fun LocationHistoryCard(location: LocationEntity) {
                 }
             }
 
-            Spacer(Modifier.height(6.dp))
-
-            KeyInfoText(location.periodIndex, location.hashedKey)
+            if (isDebugMode) {
+                Spacer(Modifier.height(6.dp))
+                KeyInfoText(location.periodIndex, location.hashedKey)
+            }
         }
     }
 }

@@ -213,8 +213,7 @@ fun SettingsScreen(
                 HorizontalDivider()
                 SettingsSwitchRow(
                     icon = Icons.Outlined.BugReport,
-                    title = "调试日志",
-                    subtitle = "开启后额外记录包含密钥等敏感信息的日志",
+                    title = "调试模式",
                     checked = debugMode,
                     onCheckedChange = { enabled ->
                         debugMode = enabled
