@@ -376,7 +376,7 @@ fun MapMainScreen(
             translationY = cardOffset.value * cardDropPx
         }
         .zIndex(1f),
-    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
             color = MaterialTheme.colorScheme.surface,
             shadowElevation = 8.dp,
             tonalElevation = 2.dp
@@ -589,7 +589,12 @@ fun MapMainScreen(
                             contentDescription = "更多",
                             tint = MaterialTheme.colorScheme.onSurface)
                     }
-                    DropdownMenu(expanded = showTopMenu, onDismissRequest = { showTopMenu = false }) {
+                    DropdownMenu(
+                        expanded = showTopMenu,
+                        onDismissRequest = { showTopMenu = false },
+                        shape = RoundedCornerShape(16.dp),
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer
+                    ) {
                         DropdownMenuItem(
                             text = { Text("关于") },
                             onClick = {

@@ -132,7 +132,12 @@ fun LiteDetailContent(
                         tint = MaterialTheme.colorScheme.onSurface
                     )
                 }
-                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false },
+                    shape = RoundedCornerShape(16.dp),
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer
+                ) {
                     DropdownMenuItem(
                         text = { Text("个性化") },
                         onClick = { showMenu = false; onNavigateToPersonalization(device.uid) },
@@ -246,8 +251,8 @@ fun LiteDetailContent(
                     modifier = Modifier
                         .align(Alignment.CenterHorizontally)
                         .fillMaxWidth(0.68f),
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh
                 ) {
                     Row(
                         modifier = Modifier
@@ -301,14 +306,14 @@ private fun LiteActionCard(
     if (onClick != null) {
         Surface(
             modifier = modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(16.dp),
             color = containerColor,
             onClick = onClick
         ) { ActionCardContent({ Icon(icon, null, Modifier.size(24.dp), tint = iconTint) }, content) }
     } else {
         Surface(
             modifier = modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(16.dp),
             color = containerColor
         ) { ActionCardContent({ Icon(icon, null, Modifier.size(24.dp), tint = iconTint) }, content) }
     }
@@ -326,7 +331,7 @@ private fun LiteActionCard(
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
         color = containerColor
     ) {
         ActionCardContent(

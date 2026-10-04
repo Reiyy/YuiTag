@@ -158,8 +158,7 @@ fun DeviceConfigScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp),
-                    enabled = !uiState.isSaving && !uiState.isConnecting,
-                    shape = RoundedCornerShape(14.dp)
+                    enabled = !uiState.isSaving && !uiState.isConnecting
                 ) {
                     Text(
                         text = if (uiState.isSaving) "保存中..." else "保存",

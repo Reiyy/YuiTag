@@ -13,10 +13,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.reiyy.yuitag.ui.theme.Blue500
-import com.reiyy.yuitag.ui.theme.ErrorRed
-import com.reiyy.yuitag.ui.theme.SuccessGreen
+import com.reiyy.yuitag.ui.theme.statusColors
 import com.reiyy.yuitag.viewmodel.DeviceConnectionState
 import com.reiyy.yuitag.viewmodel.DeviceHealthState
 
@@ -39,13 +38,13 @@ fun HealthStateTag(
             Surface(
                 modifier = modifier.then(clickModifier),
                 shape = MaterialTheme.shapes.extraSmall,
-                color = Blue500.copy(alpha = 0.15f)
+                color = MaterialTheme.colorScheme.primaryContainer
             ) {
                 Text(
                     text = "已连接",
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                     style = MaterialTheme.typography.labelSmall,
-                    color = Blue500
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
         }
@@ -57,7 +56,7 @@ fun HealthStateTag(
                 CircularProgressIndicator(
                     modifier = Modifier.size(14.dp),
                     strokeWidth = 2.dp,
-                    color = Blue500
+                    color = MaterialTheme.colorScheme.primary
                 )
                 if (health != DeviceHealthState.JUDGING) {
                     Spacer(Modifier.width(4.dp))
@@ -75,28 +74,32 @@ fun HealthStateTag(
 @Composable
 private fun HealthBadge(health: DeviceHealthState, modifier: Modifier = Modifier) {
     val text: String
-    val color: androidx.compose.ui.graphics.Color
+    val containerColor: Color
+    val contentColor: Color
+    val statusColors = MaterialTheme.statusColors
     when (health) {
         DeviceHealthState.NORMAL -> {
             text = "正常"
-            color = SuccessGreen
+            containerColor = statusColors.successContainer
+            contentColor = statusColors.onSuccessContainer
         }
         DeviceHealthState.ABNORMAL -> {
             text = "异常"
-            color = ErrorRed
+            containerColor = statusColors.errorContainer
+            contentColor = statusColors.onErrorContainer
         }
         DeviceHealthState.JUDGING -> return
     }
     Surface(
         modifier = modifier,
         shape = MaterialTheme.shapes.extraSmall,
-        color = color.copy(alpha = 0.15f)
+        color = containerColor
     ) {
         Text(
             text = text,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
             style = MaterialTheme.typography.labelSmall,
-            color = color
+            color = contentColor
         )
     }
 }

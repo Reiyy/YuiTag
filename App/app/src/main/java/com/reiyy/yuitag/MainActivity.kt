@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.reiyy.yuitag.ble.FileLog
@@ -17,6 +18,8 @@ import com.reiyy.yuitag.data.DeviceRepository
 import com.reiyy.yuitag.data.local.YuiTagDatabase
 import com.reiyy.yuitag.service.SeparationAlertService
 import com.reiyy.yuitag.ui.navigation.Routes
+import com.reiyy.yuitag.ui.theme.ThemeConfig
+import com.reiyy.yuitag.ui.theme.ThemeMode
 import com.reiyy.yuitag.ui.theme.YuiTagTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -92,11 +95,23 @@ class MainActivity : ComponentActivity() {
         // 初始化实况通知渠道
         com.reiyy.yuitag.notification.live.LiveNotificationManager.init(this)
 
+        // 初始化主题配置
+        ThemeConfig.init(this)
+
         // 解析冷启动通知跳转
         handleIntent(intent)
 
         setContent {
-            YuiTagTheme {
+            val systemInDark = isSystemInDarkTheme()
+            val useDark = when (ThemeConfig.currentThemeMode) {
+                ThemeMode.SYSTEM -> systemInDark
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
+            YuiTagTheme(
+                darkTheme = useDark,
+                dynamicColor = ThemeConfig.isDynamicColor
+            ) {
                 YuiTagApp(
                     repository = repository,
                     onRequestBluetoothEnable = { requestBluetoothEnable() },

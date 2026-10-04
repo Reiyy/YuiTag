@@ -193,7 +193,12 @@ fun LiteMainScreen(
                                 contentDescription = "更多",
                                 tint = MaterialTheme.colorScheme.onSurface)
                         }
-                        DropdownMenu(expanded = showTopMenu, onDismissRequest = { showTopMenu = false }) {
+                        DropdownMenu(
+                            expanded = showTopMenu,
+                            onDismissRequest = { showTopMenu = false },
+                            shape = RoundedCornerShape(16.dp),
+                            containerColor = MaterialTheme.colorScheme.surfaceContainer
+                        ) {
                             DropdownMenuItem(
                                 text = { Text("关于") },
                                 onClick = {
@@ -440,8 +445,7 @@ private fun EmptyState(
         OutlinedButton(
             onClick = onScan,
             enabled = !isScanning,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp)
+            modifier = Modifier.fillMaxWidth()
         ) {
             if (isScanning) {
                 CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -456,8 +460,7 @@ private fun EmptyState(
         Spacer(Modifier.height(12.dp))
         OutlinedButton(
             onClick = onNavigateToManualImport,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp)
+            modifier = Modifier.fillMaxWidth()
         ) {
             Icon(Icons.Default.Add, null, Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))

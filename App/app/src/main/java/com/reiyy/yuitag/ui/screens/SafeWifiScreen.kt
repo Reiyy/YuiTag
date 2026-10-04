@@ -161,11 +161,11 @@ fun SafeWifiScreen(
             // 未开启总开关提示
             if (!isSafeWifiEnabled) {
                 Surface(
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
+                    color = MaterialTheme.colorScheme.errorContainer,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(16.dp)
                 ) {
                     Row(
                         modifier = Modifier.padding(12.dp),
@@ -197,7 +197,7 @@ fun SafeWifiScreen(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
                     ) {
                         Row(
                             modifier = Modifier.padding(16.dp),
@@ -231,7 +231,7 @@ fun SafeWifiScreen(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(
@@ -322,8 +322,7 @@ fun SafeWifiScreen(
                                                 }
                                             }
                                         },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        shape = RoundedCornerShape(10.dp)
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                                         Spacer(Modifier.width(6.dp))
@@ -351,7 +350,6 @@ fun SafeWifiScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(
                                 onClick = { showSavedWifiDialog = true },
-                                shape = RoundedCornerShape(8.dp),
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                             ) {
                                 Icon(Icons.AutoMirrored.Outlined.FormatListBulleted, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -360,7 +358,6 @@ fun SafeWifiScreen(
                             }
                             OutlinedButton(
                                 onClick = { showManualAddDialog = true },
-                                shape = RoundedCornerShape(8.dp),
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                             ) {
                                 Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -377,7 +374,7 @@ fun SafeWifiScreen(
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
                         ) {
                             Box(
                                 modifier = Modifier
@@ -422,7 +419,7 @@ fun SafeWifiScreen(
                                 containerColor = if (isCurrent)
                                     MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
                                 else
-                                    MaterialTheme.colorScheme.surface
+                                    MaterialTheme.colorScheme.surfaceContainer
                             )
                         ) {
                             Row(

@@ -363,9 +363,8 @@ placeholder = { Text("默认：愣着干嘛呢？(~￣△￣)~") },
                     enabled = !uiState.isSaving,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.error
-                    ),
-                    shape = RoundedCornerShape(14.dp)
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                    )
                 ) {
                     Text(
                         text = "重置主题",
@@ -378,8 +377,7 @@ placeholder = { Text("默认：愣着干嘛呢？(~￣△￣)~") },
                 Button(
                     onClick = { viewModel.saveConfig(onSaved) },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !uiState.isSaving,
-                    shape = RoundedCornerShape(14.dp)
+                    enabled = !uiState.isSaving
                 ) {
                     Text(
                         text = if (uiState.isSaving) "保存中..." else "保存",

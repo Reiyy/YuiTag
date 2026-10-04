@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -43,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reiyy.yuitag.ble.YuiTagProtocol
+import com.reiyy.yuitag.ui.theme.statusColors
 import com.reiyy.yuitag.viewmodel.DevOptionsViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -113,8 +115,7 @@ fun DevOptionsScreen(
             Button(
                 onClick = { viewModel.saveName(onSaved) },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !uiState.isSaving,
-                shape = RoundedCornerShape(14.dp)
+                enabled = !uiState.isSaving
             ) {
                 Text(
                     text = if (uiState.isSaving) "保存中..." else "保存",
@@ -152,8 +153,7 @@ fun DevOptionsScreen(
             Button(
                 onClick = { viewModel.fetchFindMyStatus() },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !uiState.isFetchingFindMyStatus,
-                shape = RoundedCornerShape(14.dp)
+                enabled = !uiState.isFetchingFindMyStatus
             ) {
                 if (uiState.isFetchingFindMyStatus) {
                     Row(
@@ -182,8 +182,7 @@ fun DevOptionsScreen(
 
             Button(
                 onClick = { viewModel.deriveCurrentKey() },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp)
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
                     text = "派生当前密钥",
@@ -244,8 +243,7 @@ fun DevOptionsScreen(
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = scanState.error == null,
-                shape = RoundedCornerShape(14.dp)
+                enabled = scanState.error == null
             ) {
                 if (scanState.isDeriving) {
                     Row(
@@ -406,7 +404,7 @@ private fun FindMyBroadcastResultCard(state: DevOptionsViewModel.FindMyBroadcast
     val signalPercent = state.signalPercent ?: 0f
     val signalColor = when {
         signalPercent > 70f -> MaterialTheme.colorScheme.primary
-        signalPercent > 40f -> androidx.compose.ui.graphics.Color(0xFFFFA000)
+        signalPercent > 40f -> MaterialTheme.statusColors.warning
         else -> MaterialTheme.colorScheme.error
     }
     val batteryLabel = when (state.batteryStatus) {
@@ -419,7 +417,8 @@ private fun FindMyBroadcastResultCard(state: DevOptionsViewModel.FindMyBroadcast
     val timeText = state.lastSeenTime?.let { relativeTime(it) } ?: "--"
 
     Card(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(

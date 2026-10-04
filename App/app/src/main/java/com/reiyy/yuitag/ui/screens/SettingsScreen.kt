@@ -28,6 +28,8 @@ import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.QueryStats
+import androidx.compose.material.icons.outlined.DarkMode
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -38,6 +40,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import com.reiyy.yuitag.ui.theme.ThemeConfig
+import com.reiyy.yuitag.ui.theme.ThemeMode
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -220,6 +224,39 @@ fun SettingsScreen(
                         service.setDebugModeEnabled(enabled)
                     }
                 )
+            }
+
+            SettingsHeader("外观")
+            SettingsCard {
+                SettingsRadioPreference(
+                    icon = Icons.Outlined.DarkMode,
+                    title = "深色模式",
+                    subtitle = when (ThemeConfig.currentThemeMode) {
+                        ThemeMode.SYSTEM -> "跟随系统"
+                        ThemeMode.LIGHT -> "浅色模式"
+                        ThemeMode.DARK -> "深色模式"
+                    },
+                    options = listOf(
+                        ThemeMode.SYSTEM to "跟随系统",
+                        ThemeMode.LIGHT to "浅色模式",
+                        ThemeMode.DARK to "深色模式"
+                    ),
+                    selected = ThemeConfig.currentThemeMode,
+                    onSelect = { mode ->
+                        ThemeConfig.setThemeMode(context, mode)
+                    }
+                )
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    HorizontalDivider()
+                    SettingsSwitchRow(
+                        icon = Icons.Outlined.Palette,
+                        title = "Material You 动态色彩",
+                        checked = ThemeConfig.isDynamicColor,
+                        onCheckedChange = { enabled ->
+                            ThemeConfig.setDynamicColor(context, enabled)
+                        }
+                    )
+                }
             }
 
             SettingsHeader("遗落提醒")

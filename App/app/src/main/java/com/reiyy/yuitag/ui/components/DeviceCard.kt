@@ -1,6 +1,7 @@
 package com.reiyy.yuitag.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
@@ -16,21 +17,23 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryFull
-import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -41,9 +44,9 @@ import com.reiyy.yuitag.data.formatUid
 import com.reiyy.yuitag.data.local.DeviceType
 
 /**
- * 可展开设备卡片组件
- * 折叠态: 左侧设备类型图标 + 自定义名称
- * 展开态: 名称+电量、查找/响铃按钮、设备ID、右上三点菜单
+ * 可展开设备卡片组件 (MD3 规范)
+ * 折叠态: 左侧设备类型图标 + 自定义名称 + 电量 + 旋转展开箭头
+ * 展开态: 名称+电量、MD3 胶囊查找按钮、设备ID、右上三点菜单
  */
 @Composable
 fun DeviceCard(
@@ -56,12 +59,16 @@ fun DeviceCard(
     modifier: Modifier = Modifier
 ) {
     val deviceType = device.deviceType
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (isExpanded) 180f else 0f,
+        label = "arrow_rot"
+    )
 
     Card(
         modifier = modifier
             .fillMaxWidth()
             .clickable { onToggleExpand() },
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
@@ -119,14 +126,17 @@ fun DeviceCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Spacer(Modifier.width(8.dp))
                 }
 
-                // 展开箭头
+                // 展开箭头 (MD3 ExpandMore 带平滑旋转动效)
                 Icon(
-                    imageVector = Icons.Default.ChevronRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.size(20.dp)
+                    imageVector = Icons.Default.ExpandMore,
+                    contentDescription = if (isExpanded) "收起" else "展开",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier
+                        .size(24.dp)
+                        .rotate(arrowRotation)
                 )
             }
 
@@ -143,7 +153,8 @@ fun DeviceCard(
                 ) {
                     HorizontalDivider(
                         modifier = Modifier.padding(bottom = 12.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                        thickness = 0.5.dp
                     )
 
                     // 顶部：名称 + 电量 + 三点菜单
@@ -191,24 +202,21 @@ fun DeviceCard(
 
                     Spacer(Modifier.height(12.dp))
 
-                    // 按钮行：查找（响铃功能仅在查找模式中可用）
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    // 按钮行：查找（MD3 FilledTonalButton 胶囊按钮）
+                    FilledTonalButton(
+                        onClick = { onFindClick(device.uid) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(40.dp),
+                        shape = ButtonDefaults.shape
                     ) {
-                        OutlinedButton(
-                            onClick = { onFindClick(device.uid) },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text("查找", style = MaterialTheme.typography.bodyMedium)
-                        }
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("查找", style = MaterialTheme.typography.labelLarge)
                     }
 
                     Spacer(Modifier.height(8.dp))

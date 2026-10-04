@@ -92,11 +92,11 @@ fun MonitoredDevicesScreen(
         ) {
             if (!isMasterEnabled) {
                 Surface(
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
+                    color = MaterialTheme.colorScheme.errorContainer,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(16.dp)
                 ) {
                     Row(
                         modifier = Modifier.padding(12.dp),
@@ -161,9 +161,9 @@ fun MonitoredDevicesScreen(
                         val displayName = device.customName.ifEmpty { device.name }
                         Card(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                containerColor = MaterialTheme.colorScheme.surfaceContainer
                             )
                         ) {
                             Row(
@@ -228,7 +228,6 @@ fun MonitoredDevicesScreen(
                                             snackbarHostState.showSnackbar("已关闭「$displayName」的遗落提醒")
                                         }
                                     },
-                                    shape = RoundedCornerShape(8.dp),
                                     colors = ButtonDefaults.outlinedButtonColors(
                                         contentColor = MaterialTheme.colorScheme.error
                                     )

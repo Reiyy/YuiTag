@@ -55,6 +55,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reiyy.yuitag.ble.YuiTagProtocol
 import com.reiyy.yuitag.data.formatUid
 import com.reiyy.yuitag.ui.components.ConnectingOverlay
+import com.reiyy.yuitag.ui.theme.statusColors
 import com.reiyy.yuitag.viewmodel.DetailViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -123,7 +124,9 @@ fun DetailScreen(
                         }
                         DropdownMenu(
                             expanded = showMenu,
-                            onDismissRequest = { showMenu = false }
+                            onDismissRequest = { showMenu = false },
+                            shape = RoundedCornerShape(16.dp),
+                            containerColor = MaterialTheme.colorScheme.surfaceContainer
                         ) {
                             if (YuiTagProtocol.supportsOta(uiState.productModel)) {
                                 DropdownMenuItem(
@@ -183,7 +186,7 @@ fun DetailScreen(
                                 viewModel.forceUnbindDevice()
                             }
                         ) {
-                            Text("\u5F3A\u5236\u5220\u9664\uff08\u8BBE\u5907\u4E0D\u5728\u8EAB\u8FB9\uff09", color = Color(0xFFF59E0B))
+                            Text("强制删除（设备不在身边）", color = MaterialTheme.statusColors.warning)
                         }
                         TextButton(
                             onClick = {
@@ -236,9 +239,9 @@ fun DetailScreen(
                     // 设备信息卡片
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                     ) {
                         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                             Text("\u8BBE\u5907\u4FE1\u606F", style = MaterialTheme.typography.titleMedium,
@@ -264,9 +267,9 @@ fun DetailScreen(
                     // 设备配置卡片
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                     ) {
                         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                             Text("\u8BBE\u5907\u914D\u7F6E", style = MaterialTheme.typography.titleMedium,

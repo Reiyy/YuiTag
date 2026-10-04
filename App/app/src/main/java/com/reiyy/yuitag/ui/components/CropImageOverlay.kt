@@ -223,8 +223,7 @@ fun CropImageOverlay(
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color.White.copy(alpha = 0.2f),
                     contentColor = Color.White
-                ),
-                shape = RoundedCornerShape(12.dp)
+                )
             ) {
                 Text("取消")
             }
@@ -251,8 +250,7 @@ fun CropImageOverlay(
                         cropRectBitmap(sourceAndroid, imgCropCenterX, imgCropCenterY, imgCropW, imgCropH, outputSize, outputHeight)
                     }
                     onCropComplete(cropped)
-                },
-                shape = RoundedCornerShape(12.dp)
+                }
             ) {
                 Text("确认")
             }

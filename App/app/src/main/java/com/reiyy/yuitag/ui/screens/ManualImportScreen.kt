@@ -14,11 +14,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -152,12 +152,12 @@ fun ManualImportScreen(
 
             Spacer(Modifier.height(24.dp))
 
-            OutlinedButton(
+            Button(
                 onClick = {
                     val err = validate()
                     if (err != null) {
                         errorText = err
-                        return@OutlinedButton
+                        return@Button
                     }
                     errorText = null
                     isImporting = true
@@ -176,8 +176,7 @@ fun ManualImportScreen(
                     }
                 },
                 enabled = !isImporting,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
                     if (isImporting) "导入中..." else "导入",
