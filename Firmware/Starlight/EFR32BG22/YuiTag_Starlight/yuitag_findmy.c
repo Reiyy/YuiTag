@@ -12,6 +12,24 @@
 #include <string.h>
 
 static uint8_t s_adv_handle = 0xFF;
+static int8_t  s_findmy_tx_power = DEFAULT_FINDMY_TX_POWER;
+
+void platform_findmy_adv_set_tx_power(int8_t power_dbm)
+{
+    s_findmy_tx_power = power_dbm;
+    if (s_adv_handle != 0xFF) {
+        int16_t req_power = (int16_t)power_dbm * 10;
+        int16_t actual_power = 0;
+        sl_status_t sc = sl_bt_advertiser_set_tx_power(s_adv_handle, req_power, &actual_power);
+        if (sc == SL_STATUS_OK) {
+            platform_log("[FINDMY] Set TX power: %d dBm (actual: %d deci-dBm)", power_dbm, actual_power);
+            sl_bt_advertiser_stop(s_adv_handle);
+            sl_bt_legacy_advertiser_start(s_adv_handle, sl_bt_legacy_advertiser_non_connectable);
+        } else {
+            platform_log("[FINDMY] Set TX power (%d deci-dBm) failed: 0x%04X", req_power, sc);
+        }
+    }
+}
 
 bool platform_findmy_adv_start(const uint8_t key[28], uint8_t status_byte)
 {
@@ -28,14 +46,9 @@ bool platform_findmy_adv_start(const uint8_t key[28], uint8_t status_byte)
         sl_bt_advertiser_set_timing(s_adv_handle,
                                      interval_units, interval_units, 0, 0);
 
+        int16_t req_power = (int16_t)s_findmy_tx_power * 10;
         int16_t actual_power = 0;
-        int16_t tx_powers[] = { 80, 70, 60, 50, 40, 30, 20, 10, 0 };
-        for (size_t i = 0; i < sizeof(tx_powers) / sizeof(tx_powers[0]); i++) {
-            if (tx_powers[i] > FINDMY_TX_POWER) continue;
-            sl_status_t sc2 = sl_bt_advertiser_set_tx_power(s_adv_handle,
-                                                              tx_powers[i], &actual_power);
-            if (sc2 == SL_STATUS_OK) break;
-        }
+        sl_bt_advertiser_set_tx_power(s_adv_handle, req_power, &actual_power);
     } else {
         sl_bt_advertiser_stop(s_adv_handle);
     }

@@ -33,6 +33,12 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
     private var originalFindmyEnabled: Boolean? = null
     private var originalFindmySupported: Boolean? = null
     private var originalFindmyPeriodIndex: Int? = null
+    private var originalTxPower: Int? = null
+    private var originalMinTxPower: Int = -40
+    private var originalMaxTxPower: Int = 4
+    private var originalTxPowerSupported: Boolean = false
+    private var originalFindmyTxPower: Int? = null
+    private var originalFindmyTxPowerSupported: Boolean = false
 
     fun initialize(deviceUid: String) {
         if (uid != null) return
@@ -49,6 +55,10 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
                 originalFindmyEnabled = entity?.findmyEnabled ?: memory?.findmyEnabled
                 originalFindmySupported = entity?.findmySupported ?: memory?.findmySupported
                 originalFindmyPeriodIndex = (entity?.findmyPeriodSec ?: memory?.findmyPeriodSec)?.let { YuiTagProtocol.FindMyPeriod.fromSeconds(it).index }
+                originalTxPower = entity?.txPower ?: memory?.txPower
+                originalFindmyTxPower = entity?.findmyTxPower ?: memory?.findmyTxPower
+
+                val platform = entity?.firmwarePlatform ?: memory?.firmwarePlatform ?: ""
 
                 _uiState.update {
                     it.copy(
@@ -56,7 +66,10 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
                         advIntervalFind = originalAdvIntervalFind?.toString() ?: "",
                         findmyEnabled = originalFindmyEnabled,
                         findmySupported = originalFindmySupported,
-                        findmyPeriodIndex = originalFindmyPeriodIndex
+                        findmyPeriodIndex = originalFindmyPeriodIndex,
+                        txPower = originalTxPower,
+                        findmyTxPower = originalFindmyTxPower,
+                        firmwarePlatform = platform
                     )
                 }
             } catch (e: Exception) {
@@ -95,7 +108,13 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
                             advIntervalFind = param.advIntervalFind.toString(),
                             findmyEnabled = param.findmyEnabled,
                             findmySupported = param.findmySupported,
-                            findmyPeriodIndex = param.findmyPeriodIndex
+                            findmyPeriodIndex = param.findmyPeriodIndex,
+                            txPower = param.txPower,
+                            minTxPower = param.minTxPower,
+                            maxTxPower = param.maxTxPower,
+                            txPowerSupported = param.txPowerSupported,
+                            findmyTxPower = param.findmyTxPower,
+                            findmyTxPowerSupported = param.findmyTxPowerSupported
                         ) }
                         repository.updateBroadcastConfig(
                             deviceUid,
@@ -103,6 +122,12 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
                             param.advIntervalNormal,
                             param.advIntervalFind
                         )
+                        if (param.txPowerSupported) {
+                            repository.updateTxPower(deviceUid, param.txPower)
+                        }
+                        if (param.findmyTxPowerSupported) {
+                            repository.updateFindMyTxPower(deviceUid, param.findmyTxPower)
+                        }
                         repository.updateFindMyEnabled(deviceUid, param.findmyEnabled)
                         repository.updateFindMySupport(deviceUid, param.findmySupported)
                         repository.updateFindMyPeriod(deviceUid,
@@ -112,6 +137,12 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
                         originalFindmyEnabled = param.findmyEnabled
                         originalFindmySupported = param.findmySupported
                         originalFindmyPeriodIndex = param.findmyPeriodIndex
+                        originalTxPower = param.txPower
+                        originalMinTxPower = param.minTxPower
+                        originalMaxTxPower = param.maxTxPower
+                        originalTxPowerSupported = param.txPowerSupported
+                        originalFindmyTxPower = param.findmyTxPower
+                        originalFindmyTxPowerSupported = param.findmyTxPowerSupported
                     }.onFailure { e ->
                         // PARAM read failure is non-fatal; keep cached values
                         FileLog.w("ConfigVM", "连接读取PARAM配置失败: ${e.message}")
@@ -157,6 +188,16 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
         _uiState.update { it.copy(findmyPeriodIndex = index) }
     }
 
+    /** 更新常规广播信号强度 */
+    fun updateTxPower(powerDbm: Int) {
+        _uiState.update { it.copy(txPower = powerDbm) }
+    }
+
+    /** 更新 Find My 广播信号强度 */
+    fun updateFindMyTxPower(powerDbm: Int) {
+        _uiState.update { it.copy(findmyTxPower = powerDbm) }
+    }
+
     fun saveConfig(onSaved: () -> Unit) {
         val deviceUid = uid ?: return
         // 防止重复提交
@@ -170,6 +211,10 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
             val findmyEnabled = state.findmyEnabled
             val findmySupported = state.findmySupported
             val findmyPeriodIndex = state.findmyPeriodIndex
+            val txPower = state.txPower
+            val txPowerSupported = state.txPowerSupported
+            val findmyTxPower = state.findmyTxPower
+            val findmyTxPowerSupported = state.findmyTxPowerSupported
 
             // 从未读取到的配置不允许以默认值写入
             if (intervalNormal == null || intervalFind == null) {
@@ -181,10 +226,21 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
                 _uiState.update { it.copy(isSaving = false, saveError = "Find My 配置未知，请先连接设备读取配置") }
                 return@launch
             }
+            // 常规射频功率范围校验（设备支持时）
+            if (txPowerSupported && (txPower == null || txPower !in state.minTxPower..state.maxTxPower)) {
+                _uiState.update { it.copy(isSaving = false, saveError = "常规射频功率设置无效") }
+                return@launch
+            }
             // 不支持 Find My 时以默认值兜底（类型非空化，仅供下方受 gattFindmyChanged 门控的写入使用）
             val supportsFindMy = findmySupported != false
             val findmyEnabledSafe = findmyEnabled ?: false
             val findmyPeriodIndexSafe = findmyPeriodIndex ?: 2
+
+            // FindMy射频功率范围校验（设备支持且已启用时）
+            if (findmyTxPowerSupported && supportsFindMy && findmyEnabledSafe && (findmyTxPower == null || findmyTxPower !in state.minTxPower..state.maxTxPower)) {
+                _uiState.update { it.copy(isSaving = false, saveError = "FindMy射频功率设置无效") }
+                return@launch
+            }
 
             // 广播间隔范围须在 100-10000ms 之间
             if (intervalNormal !in 100..10000 || intervalFind !in 100..10000) {
@@ -197,7 +253,9 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
             val gattFindChanged = intervalFind != originalAdvIntervalFind
             val gattFindmyChanged = supportsFindMy && findmyEnabled != originalFindmyEnabled
             val gattPeriodChanged = supportsFindMy && findmyPeriodIndex != originalFindmyPeriodIndex
-            val anyGattChanged = gattNormalChanged || gattFindChanged || gattFindmyChanged || gattPeriodChanged
+            val gattTxPowerChanged = txPowerSupported && txPower != null && txPower != originalTxPower
+            val gattFindmyTxPowerChanged = findmyTxPowerSupported && supportsFindMy && findmyTxPower != null && findmyTxPower != originalFindmyTxPower
+            val anyGattChanged = gattNormalChanged || gattFindChanged || gattFindmyChanged || gattPeriodChanged || gattTxPowerChanged || gattFindmyTxPowerChanged
 
             if (!anyGattChanged) {
                 _uiState.update { it.copy(isSaving = false, saveError = null) }
@@ -264,6 +322,22 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
                         failedFields += "时间窗口"
                     }
                 }
+                if (gattTxPowerChanged && txPower != null) {
+                    if (session.writeTxPower(txPower)) {
+                        repository.updateTxPower(deviceUid, txPower)
+                        originalTxPower = txPower
+                    } else {
+                        failedFields += "常规射频功率"
+                    }
+                }
+                if (gattFindmyTxPowerChanged && findmyTxPower != null) {
+                    if (session.writeFindMyTxPower(findmyTxPower)) {
+                        repository.updateFindMyTxPower(deviceUid, findmyTxPower)
+                        originalFindmyTxPower = findmyTxPower
+                    } else {
+                        failedFields += "FindMy射频功率"
+                    }
+                }
                 failedFields
             }
 
@@ -305,6 +379,13 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
         val findmyEnabled: Boolean? = null,
         val findmySupported: Boolean? = null,  // Find My 支持状态，false=设备不支持该功能
         val findmyPeriodIndex: Int? = null,      // 轮换周期索引
+        val txPower: Int? = null,
+        val minTxPower: Int = -40,
+        val maxTxPower: Int = 4,
+        val txPowerSupported: Boolean = false,
+        val findmyTxPower: Int? = null,
+        val findmyTxPowerSupported: Boolean = false,
+        val firmwarePlatform: String = "",
         val isConnecting: Boolean = false,
         val connectError: String? = null,
         val isSaving: Boolean = false,

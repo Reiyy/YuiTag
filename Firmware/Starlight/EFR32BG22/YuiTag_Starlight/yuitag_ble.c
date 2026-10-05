@@ -82,6 +82,16 @@ static void start_advertising(YuiTagDevice *dev, bool connectable)
         return;
     }
 
+    // 设置发射功率 (单位: 0.1 dBm)
+    int16_t req_power = (int16_t)dev->txPower * 10;
+    int16_t actual_power = 0;
+    sc = sl_bt_advertiser_set_tx_power(s_adv_handle, req_power, &actual_power);
+    if (sc == SL_STATUS_OK) {
+        platform_log("[ADV] Set TX power: %d dBm (actual: %d deci-dBm)", dev->txPower, actual_power);
+    } else {
+        platform_log("[ADV] Set TX power (%d deci-dBm) failed: 0x%04X", req_power, sc);
+    }
+
     // 仅在载荷或连接属性改变时更新广播数据，避免无效重设
     if (!s_adv_data_set || connectable != s_adv_connectable) {
         // 主广播包字段段 (flags + 厂商数据 + [绑定后]电量 + [debug]诊断)
@@ -298,7 +308,7 @@ static void gatt_write_val(uint16_t handle, const void *data, size_t len)
 
 void yuitag_ble_update_param_value(YuiTagDevice *dev)
 {
-    uint8_t buf[32];
+    uint8_t buf[PARAM_DECRYPT_BUF_MAX_LEN];
     size_t paramLen = yuitag_device_param_read(dev, buf, sizeof(buf));
     if (paramLen > 0) {
         gatt_write_val(gattdb_param_channel, buf, paramLen);

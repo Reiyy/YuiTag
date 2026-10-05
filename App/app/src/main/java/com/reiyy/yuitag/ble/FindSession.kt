@@ -418,6 +418,16 @@ class FindSession(
         return writeParamAwait(CryptoUtils.buildFindMyPeriodConfigFrame(periodIndex, key))
     }
 
+    suspend fun writeTxPower(txPowerDbm: Int): Boolean {
+        val key = aesKey ?: return false
+        return writeParamAwait(CryptoUtils.buildTxPowerConfigFrame(txPowerDbm, key))
+    }
+
+    suspend fun writeFindMyTxPower(txPowerDbm: Int): Boolean {
+        val key = aesKey ?: return false
+        return writeParamAwait(CryptoUtils.buildFindMyTxPowerConfigFrame(txPowerDbm, key))
+    }
+
     // --- 断开与资源清理 ---
 
     /**

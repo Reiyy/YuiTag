@@ -113,7 +113,7 @@ class DeviceRepository(
                 // name 恒为设备名（GATT/DIS），customName 仅为用户自定义展示名
                 name = entity.deviceName.ifEmpty { "YuiTag_${entity.uid.take(4)}" },
                 rssi = 0,
-                txPower = 0,
+                txPower = entity.txPower,
                 version = entity.protocolVersion,
                 battery = entity.battery,
                 isBound = true,
@@ -139,7 +139,8 @@ class DeviceRepository(
                 deviceName = entity.deviceName,
                 themePath = entity.themePath,
                 boundAt = entity.boundAt,
-                separationAlertEnabled = entity.separationAlertEnabled
+                separationAlertEnabled = entity.separationAlertEnabled,
+                findmyTxPower = entity.findmyTxPower
             )
         }
         return null
@@ -357,6 +358,28 @@ class DeviceRepository(
                     advIntervalFind = advIntervalFind
                 ))
             } else current
+        }
+    }
+
+    /** 更新常规广播发射功率 (dBm) */
+    suspend fun updateTxPower(uid: String, txPower: Int) {
+        dao.updateTxPower(uid, txPower)
+        _scannedDevices.update { current ->
+            val existing = current[uid]
+            if (existing != null) current + (uid to existing.copy(txPower = txPower)) else current
+        }
+        _boundDevicesCache.update { current ->
+            val existing = current[uid]
+            if (existing != null) current + (uid to existing.copy(txPower = txPower)) else current
+        }
+    }
+
+    /** 更新 Find My 广播发射功率 (dBm) */
+    suspend fun updateFindMyTxPower(uid: String, txPower: Int) {
+        dao.updateFindMyTxPower(uid, txPower)
+        _boundDevicesCache.update { current ->
+            val existing = current[uid]
+            if (existing != null) current + (uid to existing.copy(findmyTxPower = txPower)) else current
         }
     }
 

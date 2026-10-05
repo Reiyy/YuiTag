@@ -296,6 +296,53 @@ static ssize_t read_system_id(struct bt_conn *conn,
     return bt_gatt_attr_read(conn, attr, buf, len, offset, sid, sizeof(sid));
 }
 
+#include <zephyr/bluetooth/hci.h>
+#if defined(CONFIG_BT_HCI_VS) || defined(CONFIG_BT_CTLR) || defined(CONFIG_BT_LL_SOFTDEVICE)
+#include <zephyr/bluetooth/hci_vs.h>
+#endif
+
+static void set_adv_tx_power(int8_t power_dbm)
+{
+    int8_t valid_powers[] = { 4, 3, 0, -4, -8, -12, -16, -20, -40 };
+    int8_t selected = -40;
+    for (size_t i = 0; i < ARRAY_SIZE(valid_powers); i++) {
+        if (power_dbm >= valid_powers[i]) {
+            selected = valid_powers[i];
+            break;
+        }
+    }
+
+#if defined(BT_HCI_OP_VS_WRITE_TX_POWER_LEVEL)
+    struct bt_hci_cp_vs_write_tx_power_level *cp;
+    struct net_buf *buf, *rsp = NULL;
+
+    buf = bt_hci_cmd_alloc(K_FOREVER);
+    if (buf) {
+        cp = net_buf_add(buf, sizeof(*cp));
+        cp->handle_type = BT_HCI_VS_LL_HANDLE_TYPE_ADV;
+        cp->handle = sys_cpu_to_le16(0);
+        cp->tx_power_level = selected;
+
+        int err = bt_hci_cmd_send_sync(BT_HCI_OP_VS_WRITE_TX_POWER_LEVEL, buf, &rsp);
+        if (err) {
+            platform_log("[ADV] Set TX power (%d dBm) failed: %d", selected, err);
+        } else {
+            int8_t actual = selected;
+            if (rsp && rsp->len >= sizeof(struct bt_hci_rp_vs_write_tx_power_level)) {
+                struct bt_hci_rp_vs_write_tx_power_level *rp = (void *)rsp->data;
+                actual = rp->selected_tx_power;
+            }
+            platform_log("[ADV] Set TX power: %d dBm (actual: %d dBm)", selected, actual);
+        }
+        if (rsp) {
+            net_buf_unref(rsp);
+        }
+    }
+#else
+    ARG_UNUSED(selected);
+#endif
+}
+
 // 组装广播包与扫描响应包并启动广播 (字段布局由 YuiTagCore yuitag_adv 统一构造)
 static void start_advertising(YuiTagDevice *dev, bool connectable)
 {
@@ -347,9 +394,11 @@ static void start_advertising(YuiTagDevice *dev, bool connectable)
         return;
     }
 
+    set_adv_tx_power(dev->txPower);
+
     g_adv_failed = false;
-    platform_log("[ADV] Mode=%s connectable=%d interval=%dms",
-                 dev->isBound ? "Normal" : "Initial", connectable, dev->advInterval);
+    platform_log("[ADV] Mode=%s connectable=%d interval=%dms txPower=%d",
+                 dev->isBound ? "Normal" : "Initial", connectable, dev->advInterval, dev->txPower);
 }
 
 void yuitag_ble_update_advertising(YuiTagDevice *dev, bool rebuild_data)

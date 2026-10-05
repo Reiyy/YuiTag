@@ -100,6 +100,8 @@ object ConfigBackupManager {
         val lastRssi: Int = 0,
         val battery: Int = -1,
         val separationAlertEnabled: Boolean = false,
+        val txPower: Int = 0,
+        val findmyTxPower: Int = 0,
         val theme: Map<String, String> = emptyMap()   // 文件名 -> Base64
     )
 
@@ -230,6 +232,8 @@ object ConfigBackupManager {
                     writer.name("lastRssi").value(entity.lastRssi)
                     writer.name("battery").value(entity.battery)
                     writer.name("separationAlertEnabled").value(entity.separationAlertEnabled)
+                    writer.name("txPower").value(entity.txPower)
+                    writer.name("findmyTxPower").value(entity.findmyTxPower)
 
                     writer.name("theme")
                     writer.beginObject()
@@ -348,7 +352,9 @@ object ConfigBackupManager {
             lastSeen = bd.lastSeen,
             lastRssi = bd.lastRssi,
             battery = bd.battery,
-            separationAlertEnabled = bd.separationAlertEnabled
+            separationAlertEnabled = bd.separationAlertEnabled,
+            txPower = bd.txPower,
+            findmyTxPower = bd.findmyTxPower
         )
     }
 

@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Radio
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.SignalCellularAlt
 import androidx.compose.material.icons.outlined.Timelapse
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -120,6 +121,21 @@ fun DeviceConfigScreen(
                         keyboardType = KeyboardType.Number,
                         onSave = { viewModel.updateAdvIntervalFind(it) }
                     )
+                    if (uiState.txPowerSupported) {
+                        HorizontalDivider()
+                        SettingsRadioPreference(
+                            icon = Icons.Outlined.SignalCellularAlt,
+                            title = "常规射频功率",
+                            options = YuiTagProtocol.TxPowerPreset.getAvailableOptions(
+                                minDbm = uiState.minTxPower,
+                                maxDbm = uiState.maxTxPower,
+                                currentDbm = uiState.txPower,
+                                platform = uiState.firmwarePlatform
+                            ),
+                            selected = uiState.txPower ?: 0,
+                            onSelect = { viewModel.updateTxPower(it) }
+                        )
+                    }
                 }
 
                 if (uiState.findmySupported != false) {
@@ -147,6 +163,21 @@ fun DeviceConfigScreen(
                                 selected = uiState.findmyPeriodIndex ?: 2,
                                 onSelect = { viewModel.updateFindMyPeriodIndex(it) }
                             )
+                            if (uiState.findmyTxPowerSupported) {
+                                HorizontalDivider()
+                                SettingsRadioPreference(
+                                    icon = Icons.Outlined.SignalCellularAlt,
+                                    title = "FindMy射频功率",
+                                    options = YuiTagProtocol.TxPowerPreset.getAvailableOptions(
+                                        minDbm = uiState.minTxPower,
+                                        maxDbm = uiState.maxTxPower,
+                                        currentDbm = uiState.findmyTxPower,
+                                        platform = uiState.firmwarePlatform
+                                    ),
+                                    selected = uiState.findmyTxPower ?: 4,
+                                    onSelect = { viewModel.updateFindMyTxPower(it) }
+                                )
+                            }
                         }
                     }
                 }

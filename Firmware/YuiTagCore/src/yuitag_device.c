@@ -70,9 +70,35 @@ void yuitag_device_init(YuiTagDevice *dev, const uint8_t mac[6])
     }
     dev->savedAdvInterval = dev->advInterval;
 
+    uint16_t rawPower = platform_storage_load_u16(NVM3_KEY_TX_POWER, 0x7FFF);
+    if (rawPower == 0x7FFF) {
+        dev->txPower = (int8_t)DEFAULT_BLE_TX_POWER;
+    } else {
+        dev->txPower = (int8_t)(uint8_t)rawPower;
+    }
+    if (dev->txPower < HW_TX_POWER_MIN || dev->txPower > HW_TX_POWER_MAX) {
+        platform_log("[INIT] TxPower (%d dBm) out of bounds, healing to default", dev->txPower);
+        dev->txPower = (int8_t)DEFAULT_BLE_TX_POWER;
+        platform_storage_save_u16(NVM3_KEY_TX_POWER, (uint16_t)(uint8_t)dev->txPower);
+    }
+
 #ifndef IS_SPARKS
+    uint16_t rawFmPower = platform_storage_load_u16(NVM3_KEY_FINDMY_TX_POWER, 0x7FFF);
+    if (rawFmPower == 0x7FFF) {
+        dev->findmyTxPower = (int8_t)DEFAULT_FINDMY_TX_POWER;
+    } else {
+        dev->findmyTxPower = (int8_t)(uint8_t)rawFmPower;
+    }
+    if (dev->findmyTxPower < HW_TX_POWER_MIN || dev->findmyTxPower > HW_TX_POWER_MAX) {
+        platform_log("[INIT] FindMy TxPower (%d dBm) out of bounds, healing to default", dev->findmyTxPower);
+        dev->findmyTxPower = (int8_t)DEFAULT_FINDMY_TX_POWER;
+        platform_storage_save_u16(NVM3_KEY_FINDMY_TX_POWER, (uint16_t)(uint8_t)dev->findmyTxPower);
+    }
+    platform_findmy_adv_set_tx_power(dev->findmyTxPower);
+
     dev->findmyEnabled = platform_storage_load_bool(NVM3_KEY_FINDMY_ENABLED, true);
 #else
+    dev->findmyTxPower = (int8_t)DEFAULT_BLE_TX_POWER;
     dev->findmyEnabled = platform_storage_load_bool(NVM3_KEY_FINDMY_ENABLED, false);
 #endif
 
@@ -97,6 +123,10 @@ void yuitag_device_init(YuiTagDevice *dev, const uint8_t mac[6])
         platform_storage_save_string(NVM3_KEY_DEV_NAME, dev->deviceName);
         platform_storage_save_u16(NVM3_KEY_ADV_INTERVAL, dev->advInterval);
         platform_storage_save_u16(NVM3_KEY_FIND_INTERVAL, dev->findModeInterval);
+        platform_storage_save_u16(NVM3_KEY_TX_POWER, (uint16_t)(uint8_t)dev->txPower);
+#ifndef IS_SPARKS
+        platform_storage_save_u16(NVM3_KEY_FINDMY_TX_POWER, (uint16_t)(uint8_t)dev->findmyTxPower);
+#endif
         platform_storage_save_bool(NVM3_KEY_IS_BOUND, dev->isBound);
         platform_storage_save_bool(NVM3_KEY_FINDMY_ENABLED, dev->findmyEnabled);
     } else {
@@ -109,6 +139,10 @@ void yuitag_device_init(YuiTagDevice *dev, const uint8_t mac[6])
     platform_log("[INIT] Name:         %s", dev->deviceName);
     platform_log("[INIT] Interval:     %dms", dev->advInterval);
     platform_log("[INIT] FindInterval: %dms", dev->findModeInterval);
+    platform_log("[INIT] TxPower:      %d dBm", dev->txPower);
+#ifndef IS_SPARKS
+    platform_log("[INIT] FindMyTxPower:%d dBm", dev->findmyTxPower);
+#endif
     platform_log("[INIT] State:        %s", dev->isBound ? "BOUND" : "UNBOUND");
 #ifndef IS_SPARKS
     platform_log("[INIT] FindMy:       %s", dev->findmyEnabled ? "enabled" : "disabled");
@@ -520,6 +554,13 @@ void yuitag_device_clear_binding(YuiTagDevice *dev)
     platform_storage_save_string(NVM3_KEY_DEV_NAME, dev->deviceName);
     platform_storage_save_u16(NVM3_KEY_ADV_INTERVAL, dev->advInterval);
     platform_storage_save_u16(NVM3_KEY_FIND_INTERVAL, dev->findModeInterval);
+    dev->txPower = (int8_t)DEFAULT_BLE_TX_POWER;
+    platform_storage_save_u16(NVM3_KEY_TX_POWER, (uint16_t)(uint8_t)dev->txPower);
+#ifndef IS_SPARKS
+    dev->findmyTxPower = (int8_t)DEFAULT_FINDMY_TX_POWER;
+    platform_storage_save_u16(NVM3_KEY_FINDMY_TX_POWER, (uint16_t)(uint8_t)dev->findmyTxPower);
+    platform_findmy_adv_set_tx_power(dev->findmyTxPower);
+#endif
     platform_storage_save_bool(NVM3_KEY_IS_BOUND, false);
     platform_storage_save_bool(NVM3_KEY_FINDMY_ENABLED, false);
 
@@ -567,8 +608,12 @@ void yuitag_device_persist_params(YuiTagDevice *dev)
     }
     platform_storage_save_u16(NVM3_KEY_ADV_INTERVAL, normalInterval);
     platform_storage_save_u16(NVM3_KEY_FIND_INTERVAL, dev->findModeInterval);
+    platform_storage_save_u16(NVM3_KEY_TX_POWER, (uint16_t)(uint8_t)dev->txPower);
+#ifndef IS_SPARKS
+    platform_storage_save_u16(NVM3_KEY_FINDMY_TX_POWER, (uint16_t)(uint8_t)dev->findmyTxPower);
+#endif
     platform_storage_save_bool(NVM3_KEY_FINDMY_ENABLED, dev->findmyEnabled);
-    platform_log("[PERSIST] Device params saved to storage (normalAdv=%dms)", normalInterval);
+    platform_log("[PERSIST] Device params saved to storage (normalAdv=%dms txPower=%d)", normalInterval, dev->txPower);
 }
 
 size_t yuitag_device_param_read(YuiTagDevice *dev, uint8_t *buf, size_t maxLen)
@@ -578,7 +623,11 @@ size_t yuitag_device_param_read(YuiTagDevice *dev, uint8_t *buf, size_t maxLen)
         nameLen = DEVICE_NAME_MAX_LEN;
     }
 
-    size_t total = 1 + nameLen + 6;
+#ifdef IS_SPARKS
+    size_t total = 1 + nameLen + 9;
+#else
+    size_t total = 1 + nameLen + 10;
+#endif
     if (total > maxLen) {
         return 0;
     }
@@ -598,9 +647,20 @@ size_t yuitag_device_param_read(YuiTagDevice *dev, uint8_t *buf, size_t maxLen)
     buf[6 + nameLen] = yuitag_findmy_period_seconds_to_index(yuitag_findmy_get_period());
 #endif
 
-    platform_log("[PARAM] Read: name=%s adv=%dms find=%dms findmy=%d period=%d",
+    buf[7 + nameLen] = (uint8_t)dev->txPower;
+    buf[8 + nameLen] = (uint8_t)(int8_t)HW_TX_POWER_MIN;
+    buf[9 + nameLen] = (uint8_t)(int8_t)HW_TX_POWER_MAX;
+#ifndef IS_SPARKS
+    buf[10 + nameLen] = (uint8_t)dev->findmyTxPower;
+
+    platform_log("[PARAM] Read: name=%s adv=%dms find=%dms findmy=%d period=%d txPower=%d findmyTxPower=%d",
                  dev->deviceName, dev->advInterval, dev->findModeInterval,
-                 dev->findmyEnabled, buf[6 + nameLen]);
+                 dev->findmyEnabled, buf[6 + nameLen], dev->txPower, dev->findmyTxPower);
+#else
+    platform_log("[PARAM] Read: name=%s adv=%dms find=%dms txPower=%d",
+                 dev->deviceName, dev->advInterval, dev->findModeInterval,
+                 dev->txPower);
+#endif
     return total;
 }
 
@@ -678,6 +738,22 @@ uint8_t yuitag_device_param_write(YuiTagDevice *dev, const uint8_t *cipherData, 
         }
         break;
     }
+    case CMD_TX_POWER_CONFIG: {
+        if (len >= 3) {
+            int8_t newPower = (int8_t)decBuf[1];
+            if (newPower >= HW_TX_POWER_MIN && newPower <= HW_TX_POWER_MAX) {
+                dev->txPower = newPower;
+                dev->pendingParamSave = true;
+                dev->pendingAdvRefresh = true;
+                status = STATUS_SUCCESS;
+                platform_log("[PARAM] TX power: %d dBm", dev->txPower);
+            } else {
+                platform_log("[PARAM] TX power rejected (%d dBm out of [%d, %d])",
+                             newPower, HW_TX_POWER_MIN, HW_TX_POWER_MAX);
+            }
+        }
+        break;
+    }
 #ifndef IS_SPARKS
     case CMD_FINDMY_ENABLE: {
         if (len >= 3) {
@@ -707,6 +783,22 @@ uint8_t yuitag_device_param_write(YuiTagDevice *dev, const uint8_t *cipherData, 
         if (yuitag_device_findmy_period_config(decBuf, len)) {
             dev->pendingParamSave = true;
             status = STATUS_SUCCESS;
+        }
+        break;
+    }
+    case CMD_FINDMY_TX_POWER_CONFIG: {
+        if (len >= 3) {
+            int8_t newPower = (int8_t)decBuf[1];
+            if (newPower >= HW_TX_POWER_MIN && newPower <= HW_TX_POWER_MAX) {
+                dev->findmyTxPower = newPower;
+                dev->pendingParamSave = true;
+                platform_findmy_adv_set_tx_power(dev->findmyTxPower);
+                status = STATUS_SUCCESS;
+                platform_log("[PARAM] FindMy TX power: %d dBm", dev->findmyTxPower);
+            } else {
+                platform_log("[PARAM] FindMy TX power rejected (%d dBm out of [%d, %d])",
+                             newPower, HW_TX_POWER_MIN, HW_TX_POWER_MAX);
+            }
         }
         break;
     }

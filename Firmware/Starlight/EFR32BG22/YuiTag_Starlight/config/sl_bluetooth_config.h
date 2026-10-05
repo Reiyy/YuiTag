@@ -100,7 +100,7 @@
 // <i> When this configuration is passed into stack initialization, the stack
 // <i> will select the closest value that the device supports.
 // <i> API sl_bt_system_get_tx_power_setting() can be used to query the selected value.
-#define SL_BT_CONFIG_MIN_TX_POWER     (0)
+#define SL_BT_CONFIG_MIN_TX_POWER     (-280) // -28 dBm (BG22 hardware minimum)
 
 // <o SL_BT_CONFIG_MAX_TX_POWER> Maximum radiated TX power level in 0.1dBm unit
 // <i> Default: 80 (8 dBm)

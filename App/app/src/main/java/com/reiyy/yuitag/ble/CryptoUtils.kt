@@ -203,6 +203,26 @@ object CryptoUtils {
         return aesCtrEncrypt(aesKey, plaintext)
     }
 
+    /** 构建发射功率配置帧: [0x58][TxPower(1B)][CRC] → AES 加密 */
+    fun buildTxPowerConfigFrame(txPowerDbm: Int, aesKey: ByteArray): ByteArray {
+        val plaintext = ByteArray(3)
+        plaintext[0] = YuiTagProtocol.CMD_TX_POWER_CONFIG
+        plaintext[1] = txPowerDbm.toByte()
+        plaintext[2] = crc8(plaintext, 0, 2)
+        FileLog.d(TAG, "构建发射功率配置帧: TxPower=${txPowerDbm}dBm")
+        return aesCtrEncrypt(aesKey, plaintext)
+    }
+
+    /** 构建 Find My 发射功率配置帧: [0x65][TxPower(1B)][CRC] → AES 加密 */
+    fun buildFindMyTxPowerConfigFrame(txPowerDbm: Int, aesKey: ByteArray): ByteArray {
+        val plaintext = ByteArray(3)
+        plaintext[0] = YuiTagProtocol.CMD_FINDMY_TX_POWER_CONFIG
+        plaintext[1] = txPowerDbm.toByte()
+        plaintext[2] = crc8(plaintext, 0, 2)
+        FileLog.d(TAG, "构建FindMy发射功率配置帧: TxPower=${txPowerDbm}dBm")
+        return aesCtrEncrypt(aesKey, plaintext)
+    }
+
     /** 构建 OTA 授权帧: [0x6F][0xFF][CRC] → AES 加密 */
     fun buildOtaAuthFrame(aesKey: ByteArray): ByteArray {
         val plaintext = byteArrayOf(YuiTagProtocol.CMD_OTA_AUTH, YuiTagProtocol.CMD_ACTION_EXEC, 0x00.toByte())

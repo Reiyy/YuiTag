@@ -281,13 +281,23 @@ fun DetailScreen(
                                 uiState.advIntervalNormal?.let { "${it} ms" } ?: "\u672A\u77E5")
                             InfoRow("\u67E5\u627E\u6A21\u5F0F\u5E7F\u64AD\u95F4\u9694",
                                 uiState.advIntervalFind?.let { "${it} ms" } ?: "\u672A\u77E5")
+                            if (uiState.txPowerSupported) {
+                                val power = uiState.txPower
+                                val sign = if (power > 0) "+$power" else "$power"
+                                InfoRow("常规射频功率", "$sign dBm")
+                            }
                             if (uiState.findmySupported != false) {
-                                InfoRow("Find My \u7F51\u7EDC",
+                                InfoRow("Find My 网络",
                                     when (uiState.findmyEnabled) {
-                                        true -> "\u5DF2\u542F\u7528"
-                                        false -> "\u5DF2\u505C\u7528"
-                                        null -> "\u672A\u77E5"
+                                        true -> "已启用"
+                                        false -> "已停用"
+                                        null -> "未知"
                                     })
+                                if (uiState.findmyEnabled == true && uiState.findmyTxPowerSupported) {
+                                    val fPower = uiState.findmyTxPower
+                                    val fSign = if (fPower > 0) "+$fPower" else "$fPower"
+                                    InfoRow("FindMy射频功率", "$fSign dBm")
+                                }
                             }
                         }
                     }

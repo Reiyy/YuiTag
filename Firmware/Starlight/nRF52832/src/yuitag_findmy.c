@@ -11,7 +11,13 @@
 
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/addr.h>
+#include <zephyr/bluetooth/hci.h>
+#include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/util.h>
+
+#if defined(CONFIG_BT_HCI_VS) || defined(CONFIG_BT_CTLR) || defined(CONFIG_BT_LL_SOFTDEVICE)
+#include <zephyr/bluetooth/hci_vs.h>
+#endif
 
 #include <errno.h>
 #include <string.h>
@@ -21,6 +27,60 @@
 #define FINDMY_ID 1
 
 static struct bt_le_ext_adv *s_adv = NULL;
+static int8_t s_findmy_tx_power = DEFAULT_FINDMY_TX_POWER;
+
+static void set_ext_adv_tx_power(struct bt_le_ext_adv *adv, int8_t power_dbm)
+{
+    if (!adv) return;
+    int8_t valid_powers[] = { 4, 3, 0, -4, -8, -12, -16, -20, -40 };
+    int8_t selected = -40;
+    for (size_t i = 0; i < ARRAY_SIZE(valid_powers); i++) {
+        if (power_dbm >= valid_powers[i]) {
+            selected = valid_powers[i];
+            break;
+        }
+    }
+
+#if defined(BT_HCI_OP_VS_WRITE_TX_POWER_LEVEL)
+    struct bt_hci_cp_vs_write_tx_power_level *cp;
+    struct net_buf *buf, *rsp = NULL;
+
+    buf = bt_hci_cmd_alloc(K_FOREVER);
+    if (buf) {
+        cp = net_buf_add(buf, sizeof(*cp));
+        cp->handle_type = BT_HCI_VS_LL_HANDLE_TYPE_ADV;
+        cp->handle = sys_cpu_to_le16(bt_le_ext_adv_get_index(adv));
+        cp->tx_power_level = selected;
+
+        int err = bt_hci_cmd_send_sync(BT_HCI_OP_VS_WRITE_TX_POWER_LEVEL, buf, &rsp);
+        if (err) {
+            platform_log("[FINDMY] Set TX power (%d dBm, handle=%d) failed: %d",
+                         selected, bt_le_ext_adv_get_index(adv), err);
+        } else {
+            int8_t actual = selected;
+            if (rsp && rsp->len >= sizeof(struct bt_hci_rp_vs_write_tx_power_level)) {
+                struct bt_hci_rp_vs_write_tx_power_level *rp = (void *)rsp->data;
+                actual = rp->selected_tx_power;
+            }
+            platform_log("[FINDMY] Set TX power: %d dBm (actual: %d dBm, handle=%d)",
+                         selected, actual, bt_le_ext_adv_get_index(adv));
+        }
+        if (rsp) {
+            net_buf_unref(rsp);
+        }
+    }
+#else
+    ARG_UNUSED(selected);
+#endif
+}
+
+void platform_findmy_adv_set_tx_power(int8_t power_dbm)
+{
+    s_findmy_tx_power = power_dbm;
+    if (s_adv) {
+        set_ext_adv_tx_power(s_adv, power_dbm);
+    }
+}
 
 static bool ensure_identity(const uint8_t key[FINDMY_KEY_LEN])
 {
@@ -67,8 +127,9 @@ bool platform_findmy_adv_start(const uint8_t key[28], uint8_t status_byte)
     }
 
     uint32_t units = (FINDMY_ADV_INTERVAL_MS * 8U) / 5U;
+    uint32_t opt = BT_LE_ADV_OPT_USE_IDENTITY;
     struct bt_le_adv_param param = BT_LE_ADV_PARAM_INIT(
-        BT_LE_ADV_OPT_USE_IDENTITY, units, units, NULL);
+        opt, units, units, NULL);
     param.id = FINDMY_ID;
 
     err = bt_le_ext_adv_create(&param, NULL, &s_adv);
@@ -76,6 +137,8 @@ bool platform_findmy_adv_start(const uint8_t key[28], uint8_t status_byte)
         platform_log("[FINDMY] ext_adv_create failed: %d", err);
         return false;
     }
+
+    set_ext_adv_tx_power(s_adv, s_findmy_tx_power);
 
     uint8_t raw[31];
     yuitag_findmy_build_adv_data(key, status_byte, raw);

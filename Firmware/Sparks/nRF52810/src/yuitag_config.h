@@ -34,6 +34,14 @@
 #define MODEL_NUMBER                "YuiTag Sparks|YLS05N"
 #define DEVICE_NAME_PREFIX          "YuiTag Sparks_"
 
+// ---- 硬件射频发射功率边界 (dBm) ----
+#ifndef HW_TX_POWER_MIN
+#define HW_TX_POWER_MIN             (-40)   // nRF52 硬件支持最低发射功率 (dBm)
+#endif
+#ifndef HW_TX_POWER_MAX
+#define HW_TX_POWER_MAX             4       // nRF52810 硬件支持最高发射功率 (dBm)
+#endif
+
 // ---- 引入跨平台公共协议常量 ----
 #include "yuitag_config_common.h"
 

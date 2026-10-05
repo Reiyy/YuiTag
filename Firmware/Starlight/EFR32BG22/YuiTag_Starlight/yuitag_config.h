@@ -36,13 +36,17 @@
 #define MODEL_NUMBER               "YuiTag Starlight|YLS05P" // 产品型号 | 内部代号
 #define DEVICE_NAME_PREFIX         "YuiTag Starlight_"       // 默认蓝牙名称前缀
 
-#ifndef BLE_TX_POWER
-#define BLE_TX_POWER               0       // 普通广播发射功率 (单位 0.1 dBm，默认 0 dBm)
+#ifndef HW_TX_POWER_MIN
+#define HW_TX_POWER_MIN            (-28)   // BG22 硬件支持最低发射功率 (dBm)
+#endif
+#ifndef HW_TX_POWER_MAX
+#define HW_TX_POWER_MAX            6       // BG22 硬件支持最高发射功率 (dBm)
 #endif
 
-#ifndef FINDMY_TX_POWER
-#define FINDMY_TX_POWER            60      // Find My 发射功率 (+6.0 dBm，BG22 硬件上限)
+#ifndef BLE_TX_POWER
+#define BLE_TX_POWER               0       // 普通广播默认发射功率 (单位 0.1 dBm，默认 0 dBm)
 #endif
+
 
 /* --- 引入跨平台公共协议常量 --- */
 #include "yuitag_config_common.h"

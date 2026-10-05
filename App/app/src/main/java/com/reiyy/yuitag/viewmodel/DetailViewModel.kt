@@ -60,7 +60,8 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                 advIntervalFind = device.advIntervalFind,
                 findmyEnabled = device.findmyEnabled,
                 findmySupported = device.findmySupported,
-                findmyPeriodIndex = device.findmyPeriodSec?.let { YuiTagProtocol.FindMyPeriod.fromSeconds(it).index } ?: 2
+                findmyPeriodIndex = device.findmyPeriodSec?.let { YuiTagProtocol.FindMyPeriod.fromSeconds(it).index } ?: 2,
+                findmyTxPower = device.findmyTxPower
             ) }
         }
 
@@ -159,7 +160,11 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                             advIntervalFind = param.advIntervalFind,
                             findmyEnabled = param.findmyEnabled,
                             findmySupported = param.findmySupported,
-                            findmyPeriodIndex = param.findmyPeriodIndex
+                            findmyPeriodIndex = param.findmyPeriodIndex,
+                            txPower = param.txPower,
+                            txPowerSupported = param.txPowerSupported,
+                            findmyTxPower = param.findmyTxPower,
+                            findmyTxPowerSupported = param.findmyTxPowerSupported
                         ) }
                         repository.updateBroadcastConfig(
                             deviceUid,
@@ -167,6 +172,12 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                             param.advIntervalNormal,
                             param.advIntervalFind
                         )
+                        if (param.txPowerSupported) {
+                            repository.updateTxPower(deviceUid, param.txPower)
+                        }
+                        if (param.findmyTxPowerSupported) {
+                            repository.updateFindMyTxPower(deviceUid, param.findmyTxPower)
+                        }
                         repository.updateFindMyEnabled(deviceUid, param.findmyEnabled)
                         repository.updateFindMySupport(deviceUid, param.findmySupported)
                         repository.updateFindMyPeriod(deviceUid,
@@ -317,6 +328,9 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
         val advIntervalFind: Int? = null,
         val findmyEnabled: Boolean? = null,
         val findmySupported: Boolean? = null,   // Find My 支持状态，false=设备不支持该功能
-        val findmyPeriodIndex: Int = 2     // Find My 轮换周期索引
+        val findmyPeriodIndex: Int = 2,     // Find My 轮换周期索引
+        val txPowerSupported: Boolean = false,
+        val findmyTxPower: Int = 4,
+        val findmyTxPowerSupported: Boolean = false
     )
 }

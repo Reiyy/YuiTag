@@ -14,10 +14,11 @@ import java.io.RandomAccessFile
 @Database(
     entities = [DeviceEntity::class, LocationEntity::class],
     // ⚠️ 数据库升级规范：实体字段变动时必须递增此版本号，严禁在当前版本硬改！
-    // 后续升级示例（v2 -> v3）：version = 3, autoMigrations = [AutoMigration(from = 2, to = 3)]
-    version = 3,
+    // 后续升级示例（v3 -> v4）：version = 4, autoMigrations = [AutoMigration(from = 3, to = 4)]
+    version = 4,
     autoMigrations = [
-        androidx.room.AutoMigration(from = 2, to = 3)
+        androidx.room.AutoMigration(from = 2, to = 3),
+        androidx.room.AutoMigration(from = 3, to = 4)
     ],
     exportSchema = true
 )
@@ -29,7 +30,7 @@ abstract class YuiTagDatabase : RoomDatabase() {
 
     companion object {
         const val DATABASE_NAME = "yuitag.db"
-        const val DATABASE_VERSION = 3
+        const val DATABASE_VERSION = 4
 
         @Volatile
         private var INSTANCE: YuiTagDatabase? = null
@@ -55,6 +56,17 @@ abstract class YuiTagDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * 手动迁移实例：为 devices 表补充 txPower 与 findmyTxPower 字段
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                FileLog.i("DB", "执行数据库手动迁移: v3 -> v4 (ADD COLUMN txPower, findmyTxPower)")
+                db.execSQL("ALTER TABLE devices ADD COLUMN txPower INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE devices ADD COLUMN findmyTxPower INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): YuiTagDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: buildDatabase(context.applicationContext).also { INSTANCE = it }
@@ -70,7 +82,7 @@ abstract class YuiTagDatabase : RoomDatabase() {
                 YuiTagDatabase::class.java,
                 DATABASE_NAME
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .fallbackToDestructiveMigration()
                 .addCallback(object : Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) {

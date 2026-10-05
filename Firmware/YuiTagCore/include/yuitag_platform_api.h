@@ -75,6 +75,7 @@ void platform_findmy_derive_private_key(const uint8_t seed[32],
 bool platform_findmy_adv_start(const uint8_t key[28], uint8_t status_byte);
 bool platform_findmy_adv_update_data(const uint8_t key[28], uint8_t status_byte);
 void platform_findmy_adv_stop(void);
+void platform_findmy_adv_set_tx_power(int8_t power_dbm);
 #endif
 
 // ---- 定时器抽象 (替代 Zephyr k_timer / SiLabs sleeptimer) ----

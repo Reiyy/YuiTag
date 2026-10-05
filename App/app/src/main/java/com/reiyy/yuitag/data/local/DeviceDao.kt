@@ -50,6 +50,14 @@ interface DeviceDao {
     @Query("UPDATE devices SET broadcastName = :broadcastName, advIntervalNormal = :normalMs, advIntervalFind = :findMs WHERE uid = :uid")
     suspend fun updateBroadcastConfig(uid: String, broadcastName: String, normalMs: Int, findMs: Int)
 
+    /** 更新常规广播发射功率 (dBm) */
+    @Query("UPDATE devices SET txPower = :txPower WHERE uid = :uid")
+    suspend fun updateTxPower(uid: String, txPower: Int)
+
+    /** 更新 Find My 广播发射功率 (dBm) */
+    @Query("UPDATE devices SET findmyTxPower = :txPower WHERE uid = :uid")
+    suspend fun updateFindMyTxPower(uid: String, txPower: Int)
+
     /** 更新 Find My 网络开关 */
     @Query("UPDATE devices SET findmyEnabled = :enabled WHERE uid = :uid")
     suspend fun updateFindMyEnabled(uid: String, enabled: Boolean)

@@ -46,6 +46,8 @@ typedef struct {
     uint16_t findModeInterval;
     uint16_t savedAdvInterval;
     uint8_t  batteryLevel;
+    int8_t   txPower;
+    int8_t   findmyTxPower;
 
     // ---- 时钟戳与防抖计时 ----
     uint32_t lastHeartbeatMs;

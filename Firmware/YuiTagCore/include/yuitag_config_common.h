@@ -78,12 +78,14 @@
 #define CMD_NAME_WRITE              0x4E
 #define CMD_INTERVAL_CONFIG         0x54
 #define CMD_FIND_INTERVAL_CONFIG    0x46
+#define CMD_TX_POWER_CONFIG         0x58
 
 // ---- Starlight-only command IDs (guarded by !IS_SPARKS) ----
 #define CMD_FINDMY_ENABLE           0x60
 #define CMD_FINDMY_TIME_SYNC        0x62
 #define CMD_FINDMY_STATUS           0x63
 #define CMD_FINDMY_PERIOD_CONFIG    0x64
+#define CMD_FINDMY_TX_POWER_CONFIG  0x65
 #define CMD_OTA_AUTHORIZE           0x6F
 
 // ---- Action values ----
@@ -109,6 +111,20 @@
 #define CMD_DECRYPT_BUF_MAX_LEN     32
 #define PARAM_DECRYPT_BUF_MAX_LEN   40
 
+// ---- Default regular BLE TX power (dBm) and hardware boundaries ----
+#ifndef DEFAULT_BLE_TX_POWER
+#define DEFAULT_BLE_TX_POWER        0
+#endif
+#ifndef DEFAULT_FINDMY_TX_POWER
+#define DEFAULT_FINDMY_TX_POWER     HW_TX_POWER_MAX
+#endif
+#ifndef HW_TX_POWER_MIN
+#define HW_TX_POWER_MIN             (-40)
+#endif
+#ifndef HW_TX_POWER_MAX
+#define HW_TX_POWER_MAX             6
+#endif
+
 // ---- NVM3 storage keys (uint32_t) ----
 #define NVM3_KEY_IS_BOUND           0x5001U
 #define NVM3_KEY_AES_KEY            0x5002U
@@ -122,6 +138,8 @@
 #define NVM3_KEY_FINDMY_BASE_TICKS  0x500AU
 #define NVM3_KEY_FINDMY_TIME_SYNCED 0x500BU
 #define NVM3_KEY_FINDMY_PERIOD_SEC  0x500CU
+#define NVM3_KEY_TX_POWER           0x500DU
+#define NVM3_KEY_FINDMY_TX_POWER    0x500EU
 
 // ---- Power cycle reset ----
 #define POWER_CYCLE_RESET_COUNT     5
@@ -158,9 +176,6 @@
 #define FINDMY_PERIOD_MAX_SEC       7200
 #ifndef FINDMY_TIME_PERSIST_INTERVAL_SEC
 #define FINDMY_TIME_PERSIST_INTERVAL_SEC 300
-#endif
-#ifndef FINDMY_TX_POWER
-#define FINDMY_TX_POWER             40
 #endif
 #ifndef FINDMY_MIN_VALID_UNIX_TIME
 #define FINDMY_MIN_VALID_UNIX_TIME  1767225600UL

@@ -83,6 +83,8 @@ object YuiTagProtocol {
     // Parameter Config commands (0xAA46)
     const val CMD_NAME_WRITE          = 0x4E.toByte()   // 设备名称写入
     const val CMD_INTERVAL_CONFIG     = 0x54.toByte()   // 广播间隔配置
+    const val CMD_TX_POWER_CONFIG     = 0x58.toByte()   // 广播发射功率配置
+    const val CMD_FINDMY_TX_POWER_CONFIG = 0x65.toByte() // Find My 广播发射功率配置
     const val FINDMY_ENABLE           = 0x60.toByte()   // Find My 网络开关
 
     // Find My 支持状态（PARAM 配置字节）
@@ -159,7 +161,13 @@ object YuiTagProtocol {
         val advIntervalFind: Int = 500,     // 查找模式广播间隔 (ms)
         val findmyEnabled: Boolean = true,  // Find My 网络开关
         val findmySupported: Boolean = true, // Find My 支持状态（false=设备不支持该功能）
-        val findmyPeriodIndex: Int = 2      // 时间窗口索引: 0=15min, 1=30min, 2=1h, 3=2h
+        val findmyPeriodIndex: Int = 2,     // 时间窗口索引: 0=15min, 1=30min, 2=1h, 3=2h
+        val txPower: Int = 0,               // 常规广播发射功率 (dBm)
+        val minTxPower: Int = -40,          // 硬件支持最低发射功率 (dBm)
+        val maxTxPower: Int = 4,            // 硬件支持最高发射功率 (dBm)
+        val txPowerSupported: Boolean = false, // 固件是否支持常规广播发射功率调节
+        val findmyTxPower: Int = 4,         // Find My 广播发射功率 (dBm)
+        val findmyTxPowerSupported: Boolean = false // 固件是否支持 Find My 发射功率调节
     )
 
     /** Find My 状态查询响应 */
@@ -171,7 +179,7 @@ object YuiTagProtocol {
 
     /**
      * 解析 PARAM 特征值 (0xAA46) 原始字节。
-     * 格式: [nameLen(1)][name(n)][advInt(2 LE)][findInt(2 LE)][findmy(1)][period(1)]
+     * 格式: [nameLen(1)][name(n)][advInt(2 LE)][findInt(2 LE)][findmy(1)][period(1)][txPower(1)][min(1)][max(1)][findmyTxPower(1)]
      * 缺失字段使用默认值。
      */
     fun parseParamConfig(value: ByteArray): DeviceParamInfo {
@@ -219,14 +227,133 @@ object YuiTagProtocol {
         if (value.size >= nameEnd + 6) {
             findmyPeriodIndex = value[nameEnd + 5].toInt() and 0xFF
         }
+
+        var txPower: Int? = null
+        var minTxPower: Int? = null
+        var maxTxPower: Int? = null
+        var txPowerSupported = false
+        if (value.size >= nameEnd + 9) {
+            txPower = value[nameEnd + 6].toInt() // Byte 符号扩展转换为有符号 Int
+            minTxPower = value[nameEnd + 7].toInt()
+            maxTxPower = value[nameEnd + 8].toInt()
+            txPowerSupported = true
+        }
+
+        var findmyTxPower: Int? = null
+        var findmyTxPowerSupported = false
+        if (value.size >= nameEnd + 10) {
+            findmyTxPower = value[nameEnd + 9].toInt()
+            findmyTxPowerSupported = true
+        }
+
         return DeviceParamInfo(
             broadcastName = broadcastName,
             advIntervalNormal = advIntervalNormal ?: 1500,
             advIntervalFind = advIntervalFind ?: 500,
             findmyEnabled = findmyEnabled ?: true,
             findmySupported = findmySupported ?: true,
-            findmyPeriodIndex = findmyPeriodIndex ?: 2
+            findmyPeriodIndex = findmyPeriodIndex ?: 2,
+            txPower = txPower ?: 0,
+            minTxPower = minTxPower ?: -40,
+            maxTxPower = maxTxPower ?: 4,
+            txPowerSupported = txPowerSupported,
+            findmyTxPower = findmyTxPower ?: 4,
+            findmyTxPowerSupported = findmyTxPowerSupported
         )
+    }
+
+    /** 广播发射功率预设与选项工具 */
+    enum class TxPowerPreset(val dbm: Int, val title: String, val subtitle: String) {
+        MAX(6, "最强", "穿墙能力好，通信距离远，功耗相对较高"),
+        HIGH(4, "较强", "适合较大户型或室外"),
+        BALANCED(0, "均衡", "兼顾通信距离与续航（推荐）"),
+        SAVING(-8, "节能模式", "低功耗，适合小户型/单间"),
+        MIN(-16, "近距极省电", "极低功耗，防止隔墙误判");
+
+        companion object {
+            /** nCS (nRF52) 平台硬件（RADIO TXPOWER 寄存器）支持的 9 个官方离散发射功率档位 */
+            val NCS_NRF52_OPTIONS = listOf(
+                4 to "+4 dBm (最强)",
+                3 to "+3 dBm (较强)",
+                0 to "0 dBm (均衡)",
+                -4 to "-4 dBm (最弱)",
+                -8 to "-8 dBm",
+                -12 to "-12 dBm",
+                -16 to "-16 dBm",
+                -20 to "-20 dBm",
+                -40 to "-40 dBm"
+            )
+
+            /**
+              * 根据硬件报告的 minDbm、maxDbm 及平台信息动态生成发射功率选项列表。
+              *
+              * 分支处理逻辑：
+              * 1. nCS (nRF52) 特殊分支：硬件寄存器仅支持官方离散档位，严格按照官方档位展示；
+              * 2. 默认标准分支（BG22 及通用平台）：以 1 dBm 为步进在 minDbm 到 maxDbm 范围内逐一生成调节选项。
+              */
+            fun getAvailableOptions(
+                minDbm: Int,
+                maxDbm: Int,
+                currentDbm: Int? = null,
+                platform: String? = null
+            ): List<Pair<Int, String>> {
+                // 根据硬件最高发射功率对称确定最低可选功率（过低功率实际使用意义不大且导致选项过多）
+                // 例如 BG22 最高为 +6 dBm，则最低可选为 -6 dBm；nRF52 最高为 +4 dBm，则最低可选为 -4 dBm
+                val effectiveMin = if (maxDbm > 0) maxOf(-maxDbm, minDbm) else minDbm
+
+                // 1. 判断是否走 nCS 特殊分支
+                val isNcs = (!platform.isNullOrBlank() && otaPlatformOf(platform) == OtaPlatform.NCS) ||
+                    (minDbm <= -40 && maxDbm <= 4)
+
+                val list = if (isNcs) {
+                    // 特殊分支：nCS 平台按官方离散分档显示
+                    val ncsRaw = NCS_NRF52_OPTIONS.filter { it.first in effectiveMin..maxDbm }
+                    ncsRaw.map { (dbm, _) ->
+                        val sign = if (dbm > 0) "+$dbm" else "$dbm"
+                        val label = when {
+                            dbm == maxDbm -> "$sign dBm (最强)"
+                            dbm == effectiveMin -> "$sign dBm (最弱)"
+                            dbm == 0 -> "0 dBm (均衡)"
+                            dbm > 0 -> "$sign dBm (较强)"
+                            else -> "$sign dBm"
+                        }
+                        dbm to label
+                    }.toMutableList()
+                } else {
+                    // 默认标准分支（BG22 及其他通用芯片）：以 1 dBm 步进在 [effectiveMin..maxDbm] 范围内调节
+                    val stepOptions = mutableListOf<Pair<Int, String>>()
+                    for (dbm in maxDbm downTo effectiveMin) {
+                        val sign = if (dbm > 0) "+$dbm" else "$dbm"
+                        val label = when {
+                            dbm == maxDbm -> "$sign dBm (最强)"
+                            dbm == effectiveMin -> "$sign dBm (最弱)"
+                            dbm == 0 -> "0 dBm (均衡)"
+                            else -> "$sign dBm"
+                        }
+                        stepOptions.add(dbm to label)
+                    }
+                    stepOptions
+                }
+
+                // 2. 若当前设置不在生成列表中（例如异常或历史非标值），动态补全当前选项
+                if (currentDbm != null && currentDbm in minDbm..maxDbm && list.none { it.first == currentDbm }) {
+                    val sign = if (currentDbm > 0) "+$currentDbm" else "$currentDbm"
+                    list.add(currentDbm to "当前设置 ($sign dBm)")
+                }
+
+                // 3. 极值防御（防止 min > max 导致空列表）
+                if (list.isEmpty()) {
+                    val signMax = if (maxDbm > 0) "+$maxDbm" else "$maxDbm"
+                    list.add(maxDbm to "$signMax dBm (最强)")
+                    if (effectiveMin != maxDbm) {
+                        val signMin = if (effectiveMin > 0) "+$effectiveMin" else "$effectiveMin"
+                        list.add(effectiveMin to "$signMin dBm (最弱)")
+                    }
+                }
+
+                return list.distinctBy { it.first }.sortedByDescending { it.first }
+            }
+        }
     }
 
     /** Find My 时间窗口配置 */

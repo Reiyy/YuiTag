@@ -46,7 +46,11 @@ data class DeviceEntity(
     val lastRssi: Int = 0,                     // 最近一次广播 RSSI
     val battery: Int = -1,                     // 最近一次广播电量（%，-1=未知）
     @androidx.room.ColumnInfo(defaultValue = "0")
-    val separationAlertEnabled: Boolean = false // 遗落提醒开关
+    val separationAlertEnabled: Boolean = false, // 遗落提醒开关
+    @androidx.room.ColumnInfo(defaultValue = "0")
+    val txPower: Int = 0, // 常规广播发射功率 (dBm)
+    @androidx.room.ColumnInfo(defaultValue = "0")
+    val findmyTxPower: Int = 0 // Find My 广播发射功率 (dBm)
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -79,6 +83,8 @@ data class DeviceEntity(
             lastRssi == other.lastRssi &&
             battery == other.battery &&
             separationAlertEnabled == other.separationAlertEnabled &&
+            txPower == other.txPower &&
+            findmyTxPower == other.findmyTxPower &&
             bytesEq(aesKey, other.aesKey) &&
             bytesEq(findmySeed, other.findmySeed)
     }
@@ -112,6 +118,8 @@ data class DeviceEntity(
         result = 31 * result + lastRssi
         result = 31 * result + battery
         result = 31 * result + separationAlertEnabled.hashCode()
+        result = 31 * result + txPower
+        result = 31 * result + findmyTxPower
         result = 31 * result + (aesKey?.contentHashCode() ?: 0)
         result = 31 * result + (findmySeed?.contentHashCode() ?: 0)
         return result
@@ -123,7 +131,7 @@ fun DeviceEntity.toDomainModel(): YuiTagDevice = YuiTagDevice(
     // name 恒为设备名（GATT/DIS），customName 仅为用户自定义展示名
     name = deviceName.ifEmpty { "YuiTag_${uid.take(4)}" },
     rssi = lastRssi,
-    txPower = 0,
+    txPower = txPower,
     version = protocolVersion,
     battery = battery,
     isBound = true,
@@ -151,7 +159,8 @@ fun DeviceEntity.toDomainModel(): YuiTagDevice = YuiTagDevice(
     deviceName = deviceName,
     lastSeen = lastSeen,
     boundAt = boundAt,
-    separationAlertEnabled = separationAlertEnabled
+    separationAlertEnabled = separationAlertEnabled,
+    findmyTxPower = findmyTxPower
 )
 
 /** ByteArray 内容比较（null 安全） */

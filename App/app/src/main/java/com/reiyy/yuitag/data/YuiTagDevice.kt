@@ -36,7 +36,8 @@ data class YuiTagDevice(
     val macAddress: String = "",               // BLE MAC 地址
     val deviceName: String = "",               // 设备名称 (DIS GATT)
     val boundAt: Long = 0,                     // 绑定时间戳
-    val separationAlertEnabled: Boolean = false // 遗落提醒开关
+    val separationAlertEnabled: Boolean = false, // 遗落提醒开关
+    val findmyTxPower: Int = 0                 // Find My 广播发射功率 (dBm)
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -45,6 +46,7 @@ data class YuiTagDevice(
             name == other.name &&
             rssi == other.rssi &&
             txPower == other.txPower &&
+            findmyTxPower == other.findmyTxPower &&
             version == other.version &&
             battery == other.battery &&
             advInterval == other.advInterval &&
@@ -81,6 +83,7 @@ data class YuiTagDevice(
         result = 31 * result + name.hashCode()
         result = 31 * result + rssi
         result = 31 * result + txPower
+        result = 31 * result + findmyTxPower
         result = 31 * result + version
         result = 31 * result + battery
         result = 31 * result + advInterval
