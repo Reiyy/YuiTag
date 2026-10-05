@@ -119,7 +119,8 @@ fun YuiTagTheme(
     val statusColors = if (darkTheme) DarkStatusColors else LightStatusColors
 
     CompositionLocalProvider(
-        LocalStatusColors provides statusColors
+        LocalStatusColors provides statusColors,
+        LocalDarkTheme provides darkTheme
     ) {
         MaterialTheme(
             colorScheme = colorScheme,

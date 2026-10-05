@@ -3,7 +3,10 @@ package com.reiyy.yuitag.ui.components
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.drawable.BitmapDrawable
+import com.reiyy.yuitag.ui.theme.LocalDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -76,6 +79,59 @@ private fun tiandituLayerFor(style: String): TiandituLayerConfig = when (style) 
         TiandituLayerConfig("vec", "cva", TiandituTileSource.MAX_ZOOM)
 }
 
+/**
+ * 暗夜地图调优滤镜：
+ * 1. 去饱和度 (0.18f)：大幅压低日间瓦片原色彩度（如蓝水、绿草），避免直接反色后产生刺眼的土黄水体或紫红植被；
+ * 2. 反色与冷调映射：白色路网与陆地映射至柔和低对比的暗夜冷灰(#10111A)，黑色地名注记映射至高可读性的浅白(#E2E2EC)；
+ * 3. 保持 Alpha 通道不受影响，透明背景注记层完美保留。
+ */
+private val MapDarkColorFilter: ColorMatrixColorFilter by lazy {
+    val satMatrix = ColorMatrix().apply {
+        setSaturation(0.18f)
+    }
+    val invertMatrix = ColorMatrix(floatArrayOf(
+        -0.85f, 0.00f, 0.00f, 0f, 226f,
+        0.00f, -0.85f, 0.00f, 0f, 226f,
+        0.00f, 0.00f, -0.80f, 0f, 236f,
+        0.00f, 0.00f, 0.00f, 1f, 0f
+    ))
+    invertMatrix.preConcat(satMatrix)
+    ColorMatrixColorFilter(invertMatrix)
+}
+
+private fun applyMapTheme(
+    mapView: MapView,
+    annotationOverlay: TilesOverlay?,
+    isDark: Boolean,
+    tiandituStyle: String
+) {
+    val shouldDarken = isDark && tiandituStyle != TiandituTileSource.STYLE_SATELLITE
+    val filter = if (shouldDarken) MapDarkColorFilter else null
+
+    val bgColor = if (shouldDarken) {
+        android.graphics.Color.parseColor("#1B1C1E")
+    } else {
+        android.graphics.Color.parseColor("#F5F5F5")
+    }
+    val lineCol = if (shouldDarken) {
+        android.graphics.Color.parseColor("#2C2D30")
+    } else {
+        android.graphics.Color.parseColor("#CCCCCC")
+    }
+
+    mapView.setBackgroundColor(bgColor)
+    mapView.overlayManager.tilesOverlay?.let { tilesOverlay ->
+        tilesOverlay.setColorFilter(filter)
+        tilesOverlay.loadingBackgroundColor = bgColor
+        tilesOverlay.loadingLineColor = lineCol
+    }
+    annotationOverlay?.let { labelOverlay ->
+        labelOverlay.setColorFilter(filter)
+        labelOverlay.loadingBackgroundColor = android.graphics.Color.TRANSPARENT
+        labelOverlay.loadingLineColor = android.graphics.Color.TRANSPARENT
+    }
+}
+
 @Composable
 fun OsmMapView(
     initialLatitude: Double = 39.9042,
@@ -97,7 +153,8 @@ fun OsmMapView(
     paused: Boolean = false,
     polylines: List<MapPolylineData> = emptyList(),
     fitBoundsPoints: List<Pair<Double, Double>> = emptyList(),
-    fitBoundsToken: Int = 0
+    fitBoundsToken: Int = 0,
+    isDark: Boolean = LocalDarkTheme.current
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -124,6 +181,12 @@ fun OsmMapView(
         MapView(context).apply {
             setMultiTouchControls(true)
             setUseDataConnection(true)
+            val initBg = if (isDark && tiandituStyle != TiandituTileSource.STYLE_SATELLITE) {
+                android.graphics.Color.parseColor("#1B1C1E")
+            } else {
+                android.graphics.Color.parseColor("#F5F5F5")
+            }
+            setBackgroundColor(initBg)
             controller.setZoom(zoomLevel.coerceIn(APP_MIN_ZOOM, APP_MAX_ZOOM))
             controller.setCenter(GeoPoint(initialLatitude, initialLongitude))
             minZoomLevel = APP_MIN_ZOOM
@@ -226,11 +289,21 @@ fun OsmMapView(
             )
 
             mapView.setTileProvider(MapTileProviderBasic(context, baseSource))
-            val labelOverlay = TilesOverlay(MapTileProviderBasic(context, labelSource), context)
+            val labelOverlay = TilesOverlay(MapTileProviderBasic(context, labelSource), context).apply {
+                loadingBackgroundColor = android.graphics.Color.TRANSPARENT
+                loadingLineColor = android.graphics.Color.TRANSPARENT
+            }
             mapView.overlays.add(labelOverlay)
             annotationOverlay = labelOverlay
             mapView.maxZoomLevel = APP_MAX_ZOOM
         }
+        applyMapTheme(mapView, annotationOverlay, isDark, tiandituStyle)
+        mapView.invalidate()
+    }
+
+    // 主题深浅模式或底图样式切换：动态更新瓦片滤镜与背景色，无需重新拉取瓦片
+    LaunchedEffect(isDark, annotationOverlay, tiandituStyle) {
+        applyMapTheme(mapView, annotationOverlay, isDark, tiandituStyle)
         mapView.invalidate()
     }
 

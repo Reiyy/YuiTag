@@ -80,6 +80,7 @@ val DarkStatusColors = StatusColors(
 )
 
 val LocalStatusColors = staticCompositionLocalOf { LightStatusColors }
+val LocalDarkTheme = staticCompositionLocalOf { false }
 
 val MaterialTheme.statusColors: StatusColors
     @Composable
