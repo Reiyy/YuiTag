@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
@@ -189,7 +190,7 @@ fun LiteMainScreen(
                     }
                     Box {
                         IconButton(onClick = { showTopMenu = true }) {
-                            Icon(Icons.Default.Settings,
+                            Icon(Icons.Default.MoreVert,
                                 contentDescription = "更多",
                                 tint = MaterialTheme.colorScheme.onSurface)
                         }

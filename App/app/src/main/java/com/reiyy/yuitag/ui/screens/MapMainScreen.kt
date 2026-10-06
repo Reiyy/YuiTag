@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Settings
@@ -84,6 +86,7 @@ import com.reiyy.yuitag.viewmodel.MapMainViewModel
 import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -216,6 +219,7 @@ fun MapMainScreen(
     var recenterTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var recenterToken by remember { mutableStateOf(0) }
     var selfMarkerToFrontToken by remember { mutableIntStateOf(0) }
+    var isLocating by remember { mutableStateOf(false) }
 
     // 将地图居中到指定位置（token 强制每次触发动画，即使坐标相同）
     fun centerOn(lat: Double, lng: Double) {
@@ -529,33 +533,82 @@ fun MapMainScreen(
             },
             actions = {
                 IconButton(onClick = {
+                    if (isLocating) return@IconButton
+                    isLocating = true
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     val selectedUid = uiState.selectedDeviceUid
-                    if (selectedUid != null) {
-                        // 设备详情模式：仅回中到该 tag 当前最新位置，不发起任何查询
-                        val loc = uiState.deviceLatestLocations[selectedUid]
-                        if (loc != null) {
-                            centerOn(loc.latitude, loc.longitude)
-                        } else {
-                            Toast.makeText(context, "该设备暂无位置", Toast.LENGTH_SHORT).show()
-                        }
-                    } else {
-                        selfMarkerToFrontToken++
-                        scope.launch {
-                            val fresh = viewModel.locationProvider.requestCurrentLocationOnce()
-                            if (fresh != null) {
-                                centerOn(fresh.latitude, fresh.longitude)
-                            } else if (locationState.hasLocation) {
-                                centerOn(locationState.latitude, locationState.longitude)
-                                Toast.makeText(context, "定位更新失败，已使用上次位置", Toast.LENGTH_SHORT).show()
+                    scope.launch {
+                        val startTime = System.currentTimeMillis()
+                        try {
+                            if (selectedUid != null) {
+                                // 设备详情模式：仅回中到该 tag 当前最新位置，不发起任何查询
+                                val loc = uiState.deviceLatestLocations[selectedUid]
+                                if (loc != null) {
+                                    centerOn(loc.latitude, loc.longitude)
+                                } else {
+                                    Toast.makeText(context, "该设备暂无位置", Toast.LENGTH_SHORT).show()
+                                }
                             } else {
-                                Toast.makeText(context, "无法获取定位，请检查定位权限", Toast.LENGTH_SHORT).show()
+                                selfMarkerToFrontToken++
+                                val fresh = viewModel.locationProvider.requestCurrentLocationOnce()
+                                if (fresh != null) {
+                                    centerOn(fresh.latitude, fresh.longitude)
+                                } else if (locationState.hasLocation) {
+                                    centerOn(locationState.latitude, locationState.longitude)
+                                    Toast.makeText(context, "定位更新失败，已使用上次位置", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "无法获取定位，请检查定位权限", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        } finally {
+                            try {
+                                val elapsed = System.currentTimeMillis() - startTime
+                                if (elapsed < 650L) {
+                                    delay(650L - elapsed)
+                                }
+                            } finally {
+                                isLocating = false
                             }
                         }
                     }
                 }) {
-                    Icon(Icons.Default.MyLocation,
-                        contentDescription = "我的位置",
-                        tint = MaterialTheme.colorScheme.onSurface)
+                    if (isLocating) {
+                        val infiniteTransition = rememberInfiniteTransition(label = "locate_pulse")
+                        val scale by infiniteTransition.animateFloat(
+                            initialValue = 0.88f,
+                            targetValue = 1.22f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(650, easing = FastOutSlowInEasing),
+                                repeatMode = RepeatMode.Reverse
+                            ),
+                            label = "locate_scale"
+                        )
+                        val alpha by infiniteTransition.animateFloat(
+                            initialValue = 0.65f,
+                            targetValue = 1.0f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(650, easing = FastOutSlowInEasing),
+                                repeatMode = RepeatMode.Reverse
+                            ),
+                            label = "locate_alpha"
+                        )
+                        Icon(
+                            Icons.Default.MyLocation,
+                            contentDescription = "定位中",
+                            modifier = Modifier.graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                                this.alpha = alpha
+                            },
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    } else {
+                        Icon(
+                            Icons.Default.MyLocation,
+                            contentDescription = "我的位置",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
                 IconButton(onClick = { viewModel.toggleScan() }) {
                     if (uiState.isScanning) {
@@ -585,7 +638,7 @@ fun MapMainScreen(
                 }
                 Box {
                     IconButton(onClick = { showTopMenu = true }) {
-                        Icon(Icons.Default.Settings,
+                        Icon(Icons.Default.MoreVert,
                             contentDescription = "更多",
                             tint = MaterialTheme.colorScheme.onSurface)
                     }
