@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.net.Uri
+import com.reiyy.yuitag.data.NotificationRepository
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -182,6 +183,8 @@ fun AboutScreen(
                             if (release.tagName.isNotEmpty() && VersionUtils.isNewerVersion(release.tagName, versionName)) {
                                 newVersionTag = release.tagName
                                 updateStatus = "发现新版本 ${release.tagName}"
+                                NotificationRepository.getInstance(context)
+                                    .postAppUpdateNotification(release.tagName)
                             } else {
                                 updateStatus = "当前已是最新版本"
                             }

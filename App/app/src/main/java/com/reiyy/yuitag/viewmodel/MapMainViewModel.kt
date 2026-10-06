@@ -17,6 +17,7 @@ import com.reiyy.yuitag.data.DeviceRepository
 import com.reiyy.yuitag.data.FindMyQueryService
 import com.reiyy.yuitag.data.LocationQueryHelper
 import com.reiyy.yuitag.data.NoEndpointException
+import com.reiyy.yuitag.data.NotificationRepository
 import com.reiyy.yuitag.data.SeparationAlertPreferences
 import com.reiyy.yuitag.data.YuiTagDevice
 import com.reiyy.yuitag.data.local.DeviceType
@@ -29,11 +30,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -76,6 +79,14 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
 
     private val _boundDevices = MutableStateFlow<List<YuiTagDevice>>(emptyList())
     val boundDevices: StateFlow<List<YuiTagDevice>> = _boundDevices.asStateFlow()
+
+    private val notificationRepository = NotificationRepository.getInstance(application)
+    val unreadNotificationCount: StateFlow<Int> = notificationRepository.unreadCount
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = 0
+        )
 
     // --- 扫描状态 ---
     private var scanJob: Job? = null
@@ -185,8 +196,13 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
                 // 选中的设备被删除/解绑后自动回到列表模式，
                 // 否则 bottomSheetMode 停留在 DETAIL 且 selectedDevice 为空，弹窗渲染一片空白
                 val selectedUid = _uiState.value.selectedDeviceUid
-                if (selectedUid != null && list.none { it.uid == selectedUid }) {
+                if (boundDevicesLoaded && selectedUid != null && list.none { it.uid == selectedUid }) {
                     handleSelectedDeviceRemoved(selectedUid)
+                } else if (selectedUid != null) {
+                    val currentDevice = list.find { it.uid == selectedUid }
+                    if (currentDevice != null && isRecentlySeen(currentDevice)) {
+                        connectToDevice(selectedUid)
+                    }
                 }
 
                 if (!boundDevicesLoaded && list.isNotEmpty()) {
@@ -537,6 +553,16 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
         val map = devices.associate { d -> d.uid to computeHealthState(d, locations[d.uid]) }
         if (map != _uiState.value.deviceHealthStates) {
             _uiState.update { it.copy(deviceHealthStates = map) }
+            viewModelScope.launch {
+                devices.forEach { device ->
+                    val state = map[device.uid] ?: return@forEach
+                    notificationRepository.checkDeviceHealthTransition(
+                        uid = device.uid,
+                        customName = device.customName.ifEmpty { device.name },
+                        newHealthState = state.name
+                    )
+                }
+            }
         }
     }
 
@@ -570,9 +596,13 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
         if (isRecentlySeen(device)) connectToDevice(uid)
     }
 
-    /** 地图标记点击：按 uid 选中设备并展开详情 */
+    /** 地图标记点击 / 通知跳转：按 uid 选中设备并展开详情卡片 */
     fun selectDeviceByUid(uid: String) {
-        val device = _boundDevices.value.find { it.uid == uid } ?: return
+        if (boundDevicesLoaded && _boundDevices.value.isNotEmpty() && _boundDevices.value.none { it.uid == uid }) {
+            Toast.makeText(getApplication(), "该设备已不在设备列表中", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val device = _boundDevices.value.find { it.uid == uid }
         val prevUid = _uiState.value.selectedDeviceUid
         if (prevUid != null && prevUid != uid) {
             repository.bleConnectionManager.setHeld(prevUid, false)
@@ -580,7 +610,7 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
         backToListDisconnectJob?.cancel()
         _uiState.update { it.copy(selectedDeviceUid = uid, bottomSheetMode = BottomSheetMode.DETAIL) }
         repository.bleConnectionManager.setHeld(uid, true)
-        if (isRecentlySeen(device)) connectToDevice(uid)
+        if (device != null && isRecentlySeen(device)) connectToDevice(uid)
     }
 
     /** 最近 5 分钟内见过广播（"在你身边/在你附近"）即可触发自动建联 */

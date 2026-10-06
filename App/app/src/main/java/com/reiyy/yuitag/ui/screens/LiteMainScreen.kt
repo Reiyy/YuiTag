@@ -1,5 +1,6 @@
 package com.reiyy.yuitag.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,9 +30,12 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -113,10 +118,12 @@ fun LiteMainScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToManualImport: () -> Unit = {},
     onNavigateToAbout: () -> Unit = {},
+    onNavigateToNotifications: () -> Unit = {},
     viewModel: MapMainViewModel
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val boundDevices by viewModel.boundDevices.collectAsState()
+    val unreadNotificationCount by viewModel.unreadNotificationCount.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
 
     var pageMode by remember { mutableStateOf(LitePageMode.LIST) }
@@ -134,8 +141,15 @@ fun LiteMainScreen(
         pageMode = LitePageMode.LIST
     }
 
-    LaunchedEffect(uiState.bottomSheetMode) {
-        if (uiState.bottomSheetMode == BottomSheetMode.LIST && pageMode == LitePageMode.DETAIL) {
+    BackHandler(enabled = pageMode == LitePageMode.DETAIL) {
+        viewModel.backToList()
+        pageMode = LitePageMode.LIST
+    }
+
+    LaunchedEffect(uiState.bottomSheetMode, uiState.selectedDeviceUid) {
+        if (uiState.bottomSheetMode == BottomSheetMode.DETAIL && uiState.selectedDeviceUid != null) {
+            pageMode = LitePageMode.DETAIL
+        } else if (uiState.bottomSheetMode == BottomSheetMode.LIST && pageMode == LitePageMode.DETAIL) {
             pageMode = LitePageMode.LIST
         }
     }
@@ -189,10 +203,21 @@ fun LiteMainScreen(
                         }
                     }
                     Box {
-                        IconButton(onClick = { showTopMenu = true }) {
-                            Icon(Icons.Default.MoreVert,
-                                contentDescription = "更多",
-                                tint = MaterialTheme.colorScheme.onSurface)
+                        BadgedBox(
+                            badge = {
+                                if (unreadNotificationCount > 0) {
+                                    Badge(
+                                        containerColor = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.offset(x = (-6).dp, y = 6.dp)
+                                    )
+                                }
+                            }
+                        ) {
+                            IconButton(onClick = { showTopMenu = true }) {
+                                Icon(Icons.Default.MoreVert,
+                                    contentDescription = "更多",
+                                    tint = MaterialTheme.colorScheme.onSurface)
+                            }
                         }
                         DropdownMenu(
                             expanded = showTopMenu,
@@ -200,6 +225,31 @@ fun LiteMainScreen(
                             shape = RoundedCornerShape(16.dp),
                             containerColor = MaterialTheme.colorScheme.surfaceContainer
                         ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("通知")
+                                        if (unreadNotificationCount > 0) {
+                                            Spacer(Modifier.width(8.dp))
+                                            Badge(
+                                                containerColor = MaterialTheme.colorScheme.error,
+                                                contentColor = MaterialTheme.colorScheme.onError
+                                            ) {
+                                                Text(if (unreadNotificationCount > 99) "99+" else "$unreadNotificationCount")
+                                            }
+                                        }
+                                    }
+                                },
+                                onClick = {
+                                    showTopMenu = false
+                                    onNavigateToNotifications()
+                                },
+                                leadingIcon = { Icon(Icons.Default.Notifications, null) }
+                            )
                             DropdownMenuItem(
                                 text = { Text("关于") },
                                 onClick = {

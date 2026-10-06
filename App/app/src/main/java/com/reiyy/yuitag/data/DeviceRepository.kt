@@ -32,7 +32,8 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class DeviceRepository(
     private val dao: DeviceDao,
-    private val locationDao: com.reiyy.yuitag.data.local.LocationDao
+    private val locationDao: com.reiyy.yuitag.data.local.LocationDao,
+    private val notificationRepository: NotificationRepository? = null
 ) {
 
     // ── 内存缓存：BLE 扫描实时数据 ──
@@ -425,6 +426,10 @@ class DeviceRepository(
             val existing = current[uid]
             if (existing != null) current + (uid to existing.copy(battery = battery)) else current
         }
+        val boundDevice = _boundDevicesCache.value[uid]
+        if (boundDevice != null) {
+            notificationRepository?.checkBatteryAlert(uid, boundDevice.customName, battery)
+        }
     }
 
     /** 更新 Find My 网络开关 */
@@ -595,6 +600,7 @@ class DeviceRepository(
         _scannedDevices.update { current -> current - uid }
         _boundDevicesCache.update { current -> current - uid }
         deviceRefs.remove(uid)
+        notificationRepository?.clearDeviceState(uid)
     }
 
     /** 解绑设备：清除绑定状态和密钥，保留设备扫描缓存 */
@@ -611,6 +617,7 @@ class DeviceRepository(
                 ))
             } else current
         }
+        notificationRepository?.clearDeviceState(uid)
     }
 
     /** 获取已绑定设备数量 */
@@ -759,7 +766,8 @@ class DeviceRepository(
                 INSTANCE ?: run {
                     val appContext = context.applicationContext
                     val db = com.reiyy.yuitag.data.local.YuiTagDatabase.getInstance(appContext)
-                    DeviceRepository(db.deviceDao(), db.locationDao()).also { INSTANCE = it }
+                    val notifRepo = NotificationRepository.getInstance(appContext)
+                    DeviceRepository(db.deviceDao(), db.locationDao(), notifRepo).also { INSTANCE = it }
                 }
             }
         }

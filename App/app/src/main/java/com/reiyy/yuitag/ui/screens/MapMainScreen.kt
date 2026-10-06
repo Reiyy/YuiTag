@@ -3,6 +3,7 @@ package com.reiyy.yuitag.ui.screens
 import android.widget.Toast
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -26,8 +27,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -122,10 +131,12 @@ fun MapMainScreen(
     onNavigateToDetail: (String) -> Unit,
     onNavigateToManualImport: () -> Unit = {},
     onNavigateToAbout: () -> Unit = {},
+    onNavigateToNotifications: () -> Unit = {},
     viewModel: MapMainViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val boundDevices by viewModel.boundDevices.collectAsState()
+    val unreadNotificationCount by viewModel.unreadNotificationCount.collectAsState()
     val locationState by viewModel.locationState.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
     val configuration = LocalConfiguration.current
@@ -248,10 +259,19 @@ fun MapMainScreen(
         if (selectedDevice != null) detailDevice = selectedDevice
     }
 
-    LaunchedEffect(uiState.bottomSheetMode) {
+    BackHandler(enabled = uiState.bottomSheetMode == BottomSheetMode.DETAIL) {
+        viewModel.backToList()
+    }
+
+    LaunchedEffect(uiState.bottomSheetMode, uiState.selectedDeviceUid) {
         val target = uiState.bottomSheetMode
         if (target != displayedMode) {
-            if (target == BottomSheetMode.DETAIL) detailDevice = selectedDevice
+            if (target == BottomSheetMode.DETAIL) {
+                detailDevice = selectedDevice
+                if (sheetFraction < collapsedThreshold) {
+                    startSettle(anchors[1])
+                }
+            }
             try {
                 cardOffset.animateTo(1f, tween(CardOutDuration, easing = CardOutEasing))
                 displayedMode = target
@@ -262,12 +282,28 @@ fun MapMainScreen(
             }
             // 卡片动画结束后再刷新位置（错峰，避免动画窗口内数据突变触发详情卡布局跳动）
             if (target == BottomSheetMode.DETAIL) {
-                uiState.selectedDeviceUid?.let { viewModel.refreshLocation(it) }
+                uiState.selectedDeviceUid?.let { uid ->
+                    viewModel.refreshLocation(uid)
+                    uiState.deviceLatestLocations[uid]?.let { loc ->
+                        centerOn(loc.latitude, loc.longitude)
+                    }
+                }
             }
             // 从详情回到列表：动画结束后地图回中到本机位置并置顶本机标记
             if (target == BottomSheetMode.LIST && locationState.hasLocation) {
                 centerOn(locationState.latitude, locationState.longitude)
                 selfMarkerToFrontToken++
+            }
+        } else if (target == BottomSheetMode.DETAIL) {
+            detailDevice = selectedDevice
+            if (sheetFraction < collapsedThreshold) {
+                startSettle(anchors[1])
+            }
+            uiState.selectedDeviceUid?.let { uid ->
+                viewModel.refreshLocation(uid)
+                uiState.deviceLatestLocations[uid]?.let { loc ->
+                    centerOn(loc.latitude, loc.longitude)
+                }
             }
         }
     }
@@ -637,10 +673,21 @@ fun MapMainScreen(
                     }
                 }
                 Box {
-                    IconButton(onClick = { showTopMenu = true }) {
-                        Icon(Icons.Default.MoreVert,
-                            contentDescription = "更多",
-                            tint = MaterialTheme.colorScheme.onSurface)
+                    BadgedBox(
+                        badge = {
+                            if (unreadNotificationCount > 0) {
+                                Badge(
+                                    containerColor = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.offset(x = (-6).dp, y = 6.dp)
+                                )
+                            }
+                        }
+                    ) {
+                        IconButton(onClick = { showTopMenu = true }) {
+                            Icon(Icons.Default.MoreVert,
+                                contentDescription = "更多",
+                                tint = MaterialTheme.colorScheme.onSurface)
+                        }
                     }
                     DropdownMenu(
                         expanded = showTopMenu,
@@ -648,6 +695,31 @@ fun MapMainScreen(
                         shape = RoundedCornerShape(16.dp),
                         containerColor = MaterialTheme.colorScheme.surfaceContainer
                     ) {
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("通知")
+                                    if (unreadNotificationCount > 0) {
+                                        Spacer(Modifier.width(8.dp))
+                                        Badge(
+                                            containerColor = MaterialTheme.colorScheme.error,
+                                            contentColor = MaterialTheme.colorScheme.onError
+                                        ) {
+                                            Text(if (unreadNotificationCount > 99) "99+" else "$unreadNotificationCount")
+                                        }
+                                    }
+                                }
+                            },
+                            onClick = {
+                                showTopMenu = false
+                                onNavigateToNotifications()
+                            },
+                            leadingIcon = { Icon(Icons.Default.Notifications, null) }
+                        )
                         DropdownMenuItem(
                             text = { Text("关于") },
                             onClick = {

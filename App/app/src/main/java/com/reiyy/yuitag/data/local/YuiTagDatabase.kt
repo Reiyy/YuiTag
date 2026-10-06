@@ -12,13 +12,14 @@ import java.io.File
 import java.io.RandomAccessFile
 
 @Database(
-    entities = [DeviceEntity::class, LocationEntity::class],
+    entities = [DeviceEntity::class, LocationEntity::class, NotificationEntity::class],
     // ⚠️ 数据库升级规范：实体字段变动时必须递增此版本号，严禁在当前版本硬改！
-    // 后续升级示例（v3 -> v4）：version = 4, autoMigrations = [AutoMigration(from = 3, to = 4)]
-    version = 4,
+    // 后续升级示例（v4 -> v5）：version = 5, autoMigrations = [AutoMigration(from = 4, to = 5)]
+    version = 5,
     autoMigrations = [
         androidx.room.AutoMigration(from = 2, to = 3),
-        androidx.room.AutoMigration(from = 3, to = 4)
+        androidx.room.AutoMigration(from = 3, to = 4),
+        androidx.room.AutoMigration(from = 4, to = 5)
     ],
     exportSchema = true
 )
@@ -27,10 +28,11 @@ abstract class YuiTagDatabase : RoomDatabase() {
 
     abstract fun deviceDao(): DeviceDao
     abstract fun locationDao(): LocationDao
+    abstract fun notificationDao(): NotificationDao
 
     companion object {
         const val DATABASE_NAME = "yuitag.db"
-        const val DATABASE_VERSION = 4
+        const val DATABASE_VERSION = 5
 
         @Volatile
         private var INSTANCE: YuiTagDatabase? = null
@@ -67,6 +69,33 @@ abstract class YuiTagDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * 手动迁移实例：新增 notifications 表与索引
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                FileLog.i("DB", "执行数据库手动迁移: v4 -> v5 (CREATE TABLE notifications)")
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `notifications` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `type` TEXT NOT NULL,
+                        `level` TEXT NOT NULL,
+                        `sender` TEXT NOT NULL,
+                        `deviceUid` TEXT,
+                        `title` TEXT NOT NULL,
+                        `content` TEXT NOT NULL,
+                        `timestamp` INTEGER NOT NULL,
+                        `isRead` INTEGER NOT NULL DEFAULT 0,
+                        `actionRoute` TEXT,
+                        `extraData` TEXT
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_notifications_timestamp` ON `notifications` (`timestamp`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_notifications_deviceUid` ON `notifications` (`deviceUid`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_notifications_isRead` ON `notifications` (`isRead`)")
+            }
+        }
+
         fun getInstance(context: Context): YuiTagDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: buildDatabase(context.applicationContext).also { INSTANCE = it }
@@ -82,7 +111,7 @@ abstract class YuiTagDatabase : RoomDatabase() {
                 YuiTagDatabase::class.java,
                 DATABASE_NAME
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .fallbackToDestructiveMigration()
                 .addCallback(object : Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) {

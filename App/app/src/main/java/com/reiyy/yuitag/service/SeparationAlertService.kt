@@ -38,6 +38,7 @@ import com.reiyy.yuitag.R
 import com.reiyy.yuitag.ble.FileLog
 import com.reiyy.yuitag.ble.YuiTagProtocol
 import com.reiyy.yuitag.data.DeviceRepository
+import com.reiyy.yuitag.data.NotificationRepository
 import com.reiyy.yuitag.data.SeparationAlertLevel
 import com.reiyy.yuitag.data.SeparationAlertPreferences
 import com.reiyy.yuitag.data.YuiTagDevice
@@ -770,6 +771,17 @@ class SeparationAlertService : Service() {
             state.recoveryStartTimeMs = null
             notificationManager.cancel(getAlertNotificationId(state.uid))
             FileLog.i(TAG, "信号恢复稳定，解除警报通知: ${state.displayName}")
+            serviceScope.launch {
+                try {
+                    NotificationRepository.getInstance(this@SeparationAlertService)
+                        .postSeparationRecovery(
+                            uid = state.uid,
+                            customName = state.displayName
+                        )
+                } catch (e: Exception) {
+                    FileLog.w(TAG, "写入恢复通知异常: ${e.message}")
+                }
+            }
         }
     }
 
@@ -948,6 +960,18 @@ class SeparationAlertService : Service() {
             .build()
 
         notificationManager.notify(alertId, notification)
+
+        serviceScope.launch {
+            try {
+                NotificationRepository.getInstance(this@SeparationAlertService)
+                    .postSeparationAlert(
+                        uid = state.uid,
+                        customName = state.displayName
+                    )
+            } catch (e: Exception) {
+                FileLog.w(TAG, "写入遗落报警通知异常: ${e.message}")
+            }
+        }
 
         val nowRt = SystemClock.elapsedRealtime()
         val modeText = if (currentScanMode == ScanSettings.SCAN_MODE_LOW_LATENCY) "全速" else "均衡"

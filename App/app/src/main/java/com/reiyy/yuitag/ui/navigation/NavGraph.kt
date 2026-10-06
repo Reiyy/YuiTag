@@ -27,6 +27,7 @@ import com.reiyy.yuitag.ui.screens.OtaFirmwareUpdateScreen
 import com.reiyy.yuitag.ui.screens.PersonalizationScreen
 import com.reiyy.yuitag.ui.screens.SafeWifiScreen
 import com.reiyy.yuitag.ui.screens.SettingsBackendScreen
+import com.reiyy.yuitag.ui.screens.NotificationScreen
 import com.reiyy.yuitag.ui.screens.SettingsBackupScreen
 import com.reiyy.yuitag.ui.screens.SettingsMapScreen
 import com.reiyy.yuitag.ui.screens.SettingsQueryScreen
@@ -39,12 +40,15 @@ import com.reiyy.yuitag.viewmodel.DevOptionsViewModel
 import com.reiyy.yuitag.viewmodel.FindViewModel
 import com.reiyy.yuitag.viewmodel.LocationHistoryViewModel
 import com.reiyy.yuitag.viewmodel.MapMainViewModel
+import com.reiyy.yuitag.viewmodel.NotificationViewModel
 import com.reiyy.yuitag.viewmodel.OtaViewModel
 import com.reiyy.yuitag.viewmodel.TrajectoryViewModel
 
 object Routes {
     const val MAIN = "main"
     const val LITE_MAIN = "lite_main"
+    const val NOTIFICATIONS = "notifications"
+    const val MAIN_DEVICE = "mainDevice/{uid}"
     const val FIND = "find/{uid}"
     const val DEVICE_CONFIG = "deviceConfig/{uid}"
     const val PERSONALIZATION = "personalization/{uid}"
@@ -63,6 +67,7 @@ object Routes {
     const val MANUAL_IMPORT = "manualImport"
     const val DEV_OPTIONS = "devOptions/{uid}"
 
+    fun mainDeviceRoute(uid: String) = "mainDevice/$uid"
     fun findRoute(uid: String) = "find/$uid"
     fun deviceConfigRoute(uid: String) = "deviceConfig/$uid"
     fun personalizationRoute(uid: String) = "personalization/$uid"
@@ -79,10 +84,26 @@ fun YuiTagNavGraph(
     repository: DeviceRepository,
     liteMode: Boolean = false
 ) {
+    val mainViewModel: MapMainViewModel = viewModel()
+    mainViewModel.initRepository(repository, lite = liteMode)
+
     val pendingRoute by MainActivity.pendingNavigationRoute.collectAsState()
     LaunchedEffect(pendingRoute) {
         val targetRoute = pendingRoute ?: return@LaunchedEffect
         MainActivity.pendingNavigationRoute.value = null
+
+        if (targetRoute.startsWith("mainDevice/") || targetRoute.startsWith("detail/")) {
+            val uid = targetRoute.substringAfter('/')
+            mainViewModel.selectDeviceByUid(uid)
+            val targetMain = if (liteMode) Routes.LITE_MAIN else Routes.MAIN
+            val popped = navController.popBackStack(targetMain, inclusive = false)
+            if (!popped) {
+                navController.navigate(targetMain) {
+                    popUpTo(0) { inclusive = true }
+                }
+            }
+            return@LaunchedEffect
+        }
 
         val currentDestination = navController.currentBackStackEntry?.destination
         val currentUid = navController.currentBackStackEntry?.arguments?.getString("uid")
@@ -114,9 +135,7 @@ fun YuiTagNavGraph(
         startDestination = if (liteMode) Routes.LITE_MAIN else Routes.MAIN
     ) {
         composable(Routes.MAIN) {
-            val vm: MapMainViewModel = viewModel()
-            vm.initRepository(repository)
-
+            mainViewModel.initRepository(repository, lite = false)
             MapMainScreen(
                 onNavigateToConfig = { uid -> navController.navigate(Routes.deviceConfigRoute(uid)) },
                 onNavigateToPersonalization = { uid -> navController.navigate(Routes.personalizationRoute(uid)) },
@@ -127,14 +146,13 @@ fun YuiTagNavGraph(
                 onNavigateToDetail = { uid -> navController.navigate(Routes.detailRoute(uid)) },
                 onNavigateToManualImport = { navController.navigate(Routes.MANUAL_IMPORT) },
                 onNavigateToAbout = { navController.navigate(Routes.ABOUT) },
-                viewModel = vm
+                onNavigateToNotifications = { navController.navigate(Routes.NOTIFICATIONS) },
+                viewModel = mainViewModel
             )
         }
 
         composable(Routes.LITE_MAIN) {
-            val vm: MapMainViewModel = viewModel()
-            vm.initRepository(repository, lite = true)
-
+            mainViewModel.initRepository(repository, lite = true)
             LiteMainScreen(
                 onNavigateToFind = { uid -> navController.navigate(Routes.findRoute(uid)) },
                 onNavigateToConfig = { uid -> navController.navigate(Routes.deviceConfigRoute(uid)) },
@@ -143,7 +161,8 @@ fun YuiTagNavGraph(
                 onNavigateToSettings = { navController.navigate(Routes.SETTINGS) },
                 onNavigateToManualImport = { navController.navigate(Routes.MANUAL_IMPORT) },
                 onNavigateToAbout = { navController.navigate(Routes.ABOUT) },
-                viewModel = vm
+                onNavigateToNotifications = { navController.navigate(Routes.NOTIFICATIONS) },
+                viewModel = mainViewModel
             )
         }
 
@@ -320,6 +339,48 @@ fun YuiTagNavGraph(
                 onBack = { navController.popBackStack() },
                 viewModel = vm
             )
+        }
+
+        composable(Routes.NOTIFICATIONS) {
+            val vm: NotificationViewModel = viewModel()
+            NotificationScreen(
+                onBack = { navController.popBackStack() },
+                onNavigateToRoute = { route ->
+                    if (route.startsWith("mainDevice/") || route.startsWith("detail/")) {
+                        val uid = route.substringAfter('/')
+                        mainViewModel.selectDeviceByUid(uid)
+                        val targetMain = if (liteMode) Routes.LITE_MAIN else Routes.MAIN
+                        val popped = navController.popBackStack(targetMain, inclusive = false)
+                        if (!popped) {
+                            navController.navigate(targetMain) {
+                                popUpTo(0) { inclusive = true }
+                            }
+                        }
+                    } else {
+                        navController.navigate(route)
+                    }
+                },
+                viewModel = vm
+            )
+        }
+
+        composable(
+            route = Routes.MAIN_DEVICE,
+            arguments = listOf(navArgument("uid") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val uid = backStackEntry.arguments?.getString("uid")
+            LaunchedEffect(uid) {
+                if (!uid.isNullOrEmpty()) {
+                    mainViewModel.selectDeviceByUid(uid)
+                }
+                val targetMain = if (liteMode) Routes.LITE_MAIN else Routes.MAIN
+                val popped = navController.popBackStack(targetMain, inclusive = false)
+                if (!popped) {
+                    navController.navigate(targetMain) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            }
         }
     }
 }
