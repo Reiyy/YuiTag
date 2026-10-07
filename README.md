@@ -16,8 +16,8 @@ Starlight在具有Sparks全部功能的基础上支持FindMy网络
 
 ## 兼容性
 
-Android 12+ (minSdk 31)  
-BLE 5.0+
+<img src="https://img.shields.io/badge/Android_12+-34A853?logo=android&logoColor=white" alt="Android 12+" />   
+<img src="https://img.shields.io/badge/BLE_5.0+-0082FC?logo=bluetooth&logoColor=white" alt="BLE 5.0+" /> 
 
 ## 演示图
 ![主页和Tag页](/tools/Documentation/img/主页和Tag页.jpg)  
@@ -83,17 +83,13 @@ FindMy兼容提供一定的全球定位查找能力
 [App]更好的位置轨迹
 
 ## 参与的模型
-(排序不分先后)  
-DeepSeek V4 Pro(Preview/0813/正式版)  
-DeepSeek V4 Flash(Preview/0731/正式版)  
-MiMo V2.5  
-MiMo V2.5 Pro  
-GLM-5.2  
-GLM-5.3  
-GLM-5.3-Flash  
-Gemini 3.8 Flash  
-Claude Opus 4.6 (Thinking)  
-Kimi K3  
+<img src="https://img.shields.io/badge/DeepSeek_V4_Pro-4D6BFE?logo=deepseek&logoColor=white" alt="DeepSeek V4 Pro" />
+<img src="https://img.shields.io/badge/DeepSeek_V4_Flash-4D6BFE?logo=deepseek&logoColor=white" alt="DeepSeek V4 Flash" />
+<img src="https://img.shields.io/badge/Gemini_3.8_Flash-8E75B2?logo=googlegemini&logoColor=white" alt="Gemini 3.8 Flash" />
+<img src="https://img.shields.io/badge/GLM--5.3--Flash-134CFF" alt="GLM-5.3-Flash" />
+<img src="https://img.shields.io/badge/GLM--5.3-134CFF" alt="GLM-5.3" />
+<img src="https://img.shields.io/badge/Claude_Opus_4.6-D97757?logo=claude&logoColor=white" alt="Claude Opus 4.6" />
+<img src="https://img.shields.io/badge/Kimi_K3-000000?logo=kimi&logoColor=white" alt="Kimi K3" />
 
 ## 致谢
 
