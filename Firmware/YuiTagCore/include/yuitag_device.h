@@ -104,6 +104,7 @@ uint8_t yuitag_device_param_write(YuiTagDevice *dev, const uint8_t *cipherData, 
 // ---- FindMy 辅助 ----
 bool    yuitag_device_findmy_period_config(const uint8_t *decryptedPayload, size_t len);
 uint8_t yuitag_device_handle_keys_sync(YuiTagDevice *dev, const uint8_t *decryptedPayload, size_t len);
+bool    yuitag_device_is_keys_sync_active(void);
 #ifndef IS_SPARKS
 uint8_t yuitag_device_findmy_handle_time_sync(const uint8_t *plain, size_t len);
 #endif

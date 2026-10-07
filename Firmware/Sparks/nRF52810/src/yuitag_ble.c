@@ -495,6 +495,11 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 static void conn_param_work_handler(struct k_work *work)
 {
     (void)work;
+    if (yuitag_device_is_keys_sync_active()) {
+        platform_log("[CONN] Keys sync in progress, postpone conn param update");
+        k_work_reschedule(&s_conn_param_work, K_SECONDS(5));
+        return;
+    }
     if (g_dev) {
         yuitag_ble_try_conn_param_update(g_dev);
     }
@@ -510,6 +515,11 @@ void yuitag_ble_try_conn_param_update(YuiTagDevice *dev)
         return;
     }
     if (platform_millis() - g_conn_start_ms < CONN_PARAM_DELAY_MS) {
+        return;
+    }
+    if (yuitag_device_is_keys_sync_active()) {
+        platform_log("[CONN] Keys sync in progress, postpone conn param update");
+        k_work_reschedule(&s_conn_param_work, K_SECONDS(5));
         return;
     }
 

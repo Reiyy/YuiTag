@@ -804,7 +804,20 @@ uint8_t yuitag_device_param_write(YuiTagDevice *dev, const uint8_t *cipherData, 
 
 static uint64_t s_keys_rx_mask = 0;
 static uint8_t  s_keys_expected_total = 0;
-static uint32_t s_keys_session_start_ms = 0;
+static uint32_t s_keys_session_last_rx_ms = 0;
+
+bool yuitag_device_is_keys_sync_active(void)
+{
+    if (s_keys_expected_total > 0) {
+        if ((platform_millis() - s_keys_session_last_rx_ms) > 10000UL) {
+            s_keys_expected_total = 0;
+            s_keys_rx_mask = 0;
+            return false;
+        }
+        return true;
+    }
+    return false;
+}
 
 uint8_t yuitag_device_handle_keys_sync(YuiTagDevice *dev, const uint8_t *decBuf, size_t len)
 {
@@ -828,7 +841,7 @@ uint8_t yuitag_device_handle_keys_sync(YuiTagDevice *dev, const uint8_t *decBuf,
 
         s_keys_expected_total = total;
         s_keys_rx_mask = 0;
-        s_keys_session_start_ms = platform_millis();
+        s_keys_session_last_rx_ms = platform_millis();
 
         platform_log("[KEYS_SYNC] START session: expecting %d keys", total);
         return STATUS_SUCCESS;
@@ -843,9 +856,10 @@ uint8_t yuitag_device_handle_keys_sync(YuiTagDevice *dev, const uint8_t *decBuf,
             platform_log("[KEYS_SYNC] DATA rejected: no session");
             return STATUS_FAILED;
         }
-        if ((platform_millis() - s_keys_session_start_ms) > 30000UL) {
-            platform_log("[KEYS_SYNC] DATA rejected: timeout");
+        if ((platform_millis() - s_keys_session_last_rx_ms) > 10000UL) {
+            platform_log("[KEYS_SYNC] DATA rejected: sliding timeout");
             s_keys_expected_total = 0;
+            s_keys_rx_mask = 0;
             return STATUS_FAILED;
         }
 
@@ -856,6 +870,7 @@ uint8_t yuitag_device_handle_keys_sync(YuiTagDevice *dev, const uint8_t *decBuf,
             return STATUS_FAILED;
         }
 
+        s_keys_session_last_rx_ms = platform_millis();
         platform_storage_save_bytes(NVM3_KEY_FINDMY_KEY_BASE + index, &decBuf[3], FINDMY_KEY_LEN);
         s_keys_rx_mask |= ((uint64_t)1 << index);
         platform_log("[KEYS_SYNC] DATA: slot %d/%d saved to storage", index, s_keys_expected_total);
