@@ -50,7 +50,11 @@ data class DeviceEntity(
     @androidx.room.ColumnInfo(defaultValue = "0")
     val txPower: Int = 0, // 常规广播发射功率 (dBm)
     @androidx.room.ColumnInfo(defaultValue = "0")
-    val findmyTxPower: Int = 0 // Find My 广播发射功率 (dBm)
+    val findmyTxPower: Int = 0, // Find My 广播发射功率 (dBm)
+    @androidx.room.ColumnInfo(defaultValue = "''")
+    val fixedKeysJson: String = "", // Sparks 固定密钥池 JSON
+    @androidx.room.ColumnInfo(defaultValue = "NULL")
+    val fixedKeyCount: Int? = null  // Sparks 固定密钥池设定数量
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -85,6 +89,8 @@ data class DeviceEntity(
             separationAlertEnabled == other.separationAlertEnabled &&
             txPower == other.txPower &&
             findmyTxPower == other.findmyTxPower &&
+            fixedKeysJson == other.fixedKeysJson &&
+            fixedKeyCount == other.fixedKeyCount &&
             bytesEq(aesKey, other.aesKey) &&
             bytesEq(findmySeed, other.findmySeed)
     }
@@ -120,6 +126,8 @@ data class DeviceEntity(
         result = 31 * result + separationAlertEnabled.hashCode()
         result = 31 * result + txPower
         result = 31 * result + findmyTxPower
+        result = 31 * result + fixedKeysJson.hashCode()
+        result = 31 * result + (fixedKeyCount ?: 0)
         result = 31 * result + (aesKey?.contentHashCode() ?: 0)
         result = 31 * result + (findmySeed?.contentHashCode() ?: 0)
         return result
@@ -160,7 +168,9 @@ fun DeviceEntity.toDomainModel(): YuiTagDevice = YuiTagDevice(
     lastSeen = lastSeen,
     boundAt = boundAt,
     separationAlertEnabled = separationAlertEnabled,
-    findmyTxPower = findmyTxPower
+    findmyTxPower = findmyTxPower,
+    fixedKeysJson = fixedKeysJson,
+    fixedKeyCount = fixedKeyCount
 )
 
 /** ByteArray 内容比较（null 安全） */

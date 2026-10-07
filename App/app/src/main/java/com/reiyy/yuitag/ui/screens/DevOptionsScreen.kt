@@ -150,42 +150,44 @@ fun DevOptionsScreen(
 
             Spacer(Modifier.height(12.dp))
 
-            Button(
-                onClick = { viewModel.fetchFindMyStatus() },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !uiState.isFetchingFindMyStatus
-            ) {
-                if (uiState.isFetchingFindMyStatus) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp
-                        )
+            if (!uiState.isSparks) {
+                Button(
+                    onClick = { viewModel.fetchFindMyStatus() },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !uiState.isFetchingFindMyStatus
+                ) {
+                    if (uiState.isFetchingFindMyStatus) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Text(
+                                text = "查询中...",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                        }
+                    } else {
                         Text(
-                            text = "查询中...",
-                            style = MaterialTheme.typography.titleMedium
+                            text = "获取当前FindMy状态",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
-                } else {
-                    Text(
-                        text = "获取当前FindMy状态",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
                 }
-            }
 
-            Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(12.dp))
+            }
 
             Button(
                 onClick = { viewModel.deriveCurrentKey() },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "派生当前密钥",
+                    text = if (uiState.isSparks) "查看固定密钥组 (写入日志)" else "派生当前密钥",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -208,7 +210,7 @@ fun DevOptionsScreen(
             Spacer(Modifier.height(4.dp))
 
             Text(
-                text = "扫描空中 FindMy 广播，验证设备是否正常广播（±5 时间窗口）",
+                text = if (uiState.isSparks) "扫描空中 FindMy 广播，匹配设备预生成的固定公钥组" else "扫描空中 FindMy 广播，验证设备是否正常广播（±5 时间窗口）",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth()
@@ -254,7 +256,7 @@ fun DevOptionsScreen(
                             modifier = Modifier.size(18.dp),
                             strokeWidth = 2.dp
                         )
-                        Text("正在派生候选密钥...")
+                        Text(if (uiState.isSparks) "正在加载固定密钥..." else "正在派生候选密钥...")
                     }
                 } else if (scanState.isScanning) {
                     Row(
@@ -454,6 +456,15 @@ private fun FindMyBroadcastResultCard(state: DevOptionsViewModel.FindMyBroadcast
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium
                 )
+                state.matchedSlot?.let { slot ->
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = "匹配固定密钥: Slot #$slot",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
                 state.pubXHex?.let { pubX ->
                     Spacer(Modifier.height(2.dp))
                     Text(

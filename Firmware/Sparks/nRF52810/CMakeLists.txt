@@ -17,6 +17,7 @@ target_sources(app PRIVATE
     src/yuitag_platform.c
     src/yuitag_buzzer.c
     src/yuitag_ble.c
+    src/yuitag_findmy.c
     ${YUITAG_CORE_DIR}/src/yuitag_device.c
     ${YUITAG_CORE_DIR}/src/yuitag_crypto_common.c
     ${YUITAG_CORE_DIR}/src/yuitag_adv.c

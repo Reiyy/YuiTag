@@ -14,12 +14,13 @@ import java.io.RandomAccessFile
 @Database(
     entities = [DeviceEntity::class, LocationEntity::class, NotificationEntity::class],
     // ⚠️ 数据库升级规范：实体字段变动时必须递增此版本号，严禁在当前版本硬改！
-    // 后续升级示例（v4 -> v5）：version = 5, autoMigrations = [AutoMigration(from = 4, to = 5)]
-    version = 5,
+    // 后续升级示例（v5 -> v6）：version = 6, autoMigrations = [AutoMigration(from = 5, to = 6)]
+    version = 6,
     autoMigrations = [
         androidx.room.AutoMigration(from = 2, to = 3),
         androidx.room.AutoMigration(from = 3, to = 4),
-        androidx.room.AutoMigration(from = 4, to = 5)
+        androidx.room.AutoMigration(from = 4, to = 5),
+        androidx.room.AutoMigration(from = 5, to = 6)
     ],
     exportSchema = true
 )
@@ -32,7 +33,7 @@ abstract class YuiTagDatabase : RoomDatabase() {
 
     companion object {
         const val DATABASE_NAME = "yuitag.db"
-        const val DATABASE_VERSION = 5
+        const val DATABASE_VERSION = 6
 
         @Volatile
         private var INSTANCE: YuiTagDatabase? = null
@@ -96,6 +97,17 @@ abstract class YuiTagDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * 手动迁移实例：为 devices 表补充 fixedKeysJson 与 fixedKeyCount 字段
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                FileLog.i("DB", "执行数据库手动迁移: v5 -> v6 (ADD COLUMN fixedKeysJson, fixedKeyCount)")
+                db.execSQL("ALTER TABLE devices ADD COLUMN fixedKeysJson TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE devices ADD COLUMN fixedKeyCount INTEGER DEFAULT NULL")
+            }
+        }
+
         fun getInstance(context: Context): YuiTagDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: buildDatabase(context.applicationContext).also { INSTANCE = it }
@@ -111,7 +123,7 @@ abstract class YuiTagDatabase : RoomDatabase() {
                 YuiTagDatabase::class.java,
                 DATABASE_NAME
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .fallbackToDestructiveMigration()
                 .addCallback(object : Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) {

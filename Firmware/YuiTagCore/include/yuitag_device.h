@@ -62,9 +62,7 @@ typedef struct {
     bool     pendingParamSave;
     bool     pendingAdvRefresh;
     bool     pendingConnParamReset;
-#ifndef IS_SPARKS
     bool     pendingFindmyChange;
-#endif
 } YuiTagDevice;
 
 // ---- 生命周期 ----
@@ -103,9 +101,10 @@ void yuitag_device_persist_params(YuiTagDevice *dev);
 size_t  yuitag_device_param_read(YuiTagDevice *dev, uint8_t *buf, size_t maxLen);
 uint8_t yuitag_device_param_write(YuiTagDevice *dev, const uint8_t *cipherData, size_t len);
 
-// ---- FindMy 辅助 (仅 Starlight) ----
-#ifndef IS_SPARKS
+// ---- FindMy 辅助 ----
 bool    yuitag_device_findmy_period_config(const uint8_t *decryptedPayload, size_t len);
+uint8_t yuitag_device_handle_keys_sync(YuiTagDevice *dev, const uint8_t *decryptedPayload, size_t len);
+#ifndef IS_SPARKS
 uint8_t yuitag_device_findmy_handle_time_sync(const uint8_t *plain, size_t len);
 #endif
 

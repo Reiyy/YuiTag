@@ -12,6 +12,7 @@
 #include "yuitag_device.h"
 #include "yuitag_buzzer_types.h"
 #include "yuitag_ble.h"
+#include "yuitag_findmy.h"
 #include "app.h"
 
 static YuiTagDevice g_dev;
@@ -47,7 +48,20 @@ static void bt_ready(int err)
     // 5. 启动 BLE 广播 (未绑定时慢广播，已绑定时常态广播)
     yuitag_ble_update_advertising(&g_dev, true);
 
-    // 6. 标记系统初始化完成，使能异步工作队列事件调度
+    // 6. 初始化 Find My 模块并在使能时启动轮换广播
+    yuitag_findmy_init();
+    yuitag_ble_update_param_value(&g_dev);
+    if (g_dev.findmyEnabled) {
+        if (!yuitag_findmy_enable()) {
+            g_dev.findmyEnabled = false;
+            platform_log("[FINDMY] Enable failed at boot, reverting flag");
+            yuitag_ble_update_param_value(&g_dev);
+        } else {
+            yuitag_findmy_update_battery(g_dev.batteryLevel);
+        }
+    }
+
+    // 7. 标记系统初始化完成，使能异步工作队列事件调度
     app_mark_initialized();
     platform_log("[BOOT] YuiTag initialized");
 }

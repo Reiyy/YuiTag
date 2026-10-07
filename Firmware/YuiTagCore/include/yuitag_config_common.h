@@ -80,13 +80,21 @@
 #define CMD_FIND_INTERVAL_CONFIG    0x46
 #define CMD_TX_POWER_CONFIG         0x58
 
-// ---- Starlight-only command IDs (guarded by !IS_SPARKS) ----
 #define CMD_FINDMY_ENABLE           0x60
 #define CMD_FINDMY_TIME_SYNC        0x62
 #define CMD_FINDMY_STATUS           0x63
 #define CMD_FINDMY_PERIOD_CONFIG    0x64
 #define CMD_FINDMY_TX_POWER_CONFIG  0x65
+#define CMD_FINDMY_KEYS_SYNC        0x66
 #define CMD_OTA_AUTHORIZE           0x6F
+
+// ---- FindMy Keys Sync sub-opcodes & bounds (0x66) ----
+#define SUB_OP_KEYS_START           0x01
+#define SUB_OP_KEYS_DATA            0x02
+#define SUB_OP_KEYS_FINISH          0x03
+#define FINDMY_MIN_KEYS             5
+#define FINDMY_MAX_KEYS             50
+#define FINDMY_DEFAULT_KEYS         20
 
 // ---- Action values ----
 #define ACTION_OFF                  0x00
@@ -140,6 +148,10 @@
 #define NVM3_KEY_FINDMY_PERIOD_SEC  0x500CU
 #define NVM3_KEY_TX_POWER           0x500DU
 #define NVM3_KEY_FINDMY_TX_POWER    0x500EU
+#define NVM3_KEY_FINDMY_KEY_COUNT   0x5010U
+#define NVM3_KEY_FINDMY_CURRENT_IDX 0x5011U
+#define NVM3_KEY_FINDMY_KEYS_BLOB   0x5012U
+#define NVM3_KEY_FINDMY_KEY_BASE    0x5020U
 
 // ---- Power cycle reset ----
 #define POWER_CYCLE_RESET_COUNT     5
@@ -155,6 +167,12 @@
 #define AES_KEY_LEN                 16
 #define DEVICE_NAME_MAX_LEN         24
 
+// ---- FindMy common constants ----
+#define FINDMY_KEY_LEN              28
+#define FINDMY_DEFAULT_PERIOD_SEC   3600
+#define FINDMY_PERIOD_MIN_SEC       900
+#define FINDMY_PERIOD_MAX_SEC       7200
+
 // ---- Battery voltage thresholds (mV) ----
 #define BATTERY_FULL_MV             3000
 #define BATTERY_EMPTY_MV            2000
@@ -165,15 +183,11 @@
 #define ECDH_SHARED_SECRET_LEN      32
 #endif
 
-// ---- Starlight-only: FindMy parameters ----
+// ---- Starlight-only: FindMy dynamic derive parameters ----
 #ifndef IS_SPARKS
-#define FINDMY_KEY_LEN              28
 #define FINDMY_SEED_LEN             32
 #define FINDMY_DERIVE_INFO          "ciallo"
 #define FINDMY_DERIVE_INFO_LEN      6
-#define FINDMY_DEFAULT_PERIOD_SEC   3600
-#define FINDMY_PERIOD_MIN_SEC       900
-#define FINDMY_PERIOD_MAX_SEC       7200
 #ifndef FINDMY_TIME_PERSIST_INTERVAL_SEC
 #define FINDMY_TIME_PERSIST_INTERVAL_SEC 300
 #endif

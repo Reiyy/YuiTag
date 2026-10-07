@@ -45,8 +45,7 @@ size_t yuitag_adv_build_scan_rsp(const YuiTagDevice *dev,
                                  yuitag_adv_seg_t *segs, size_t maxSegs,
                                  uint8_t *storage, size_t storageSize);
 
-// ---- Apple Find My 广播载荷与地址 (仅 Starlight) ----
-#ifndef IS_SPARKS
+// ---- Apple Find My 广播载荷与地址 ----
 // 构造 31 字节 Find My 离线寻物广播原始载荷 (含 LTV 头)
 void yuitag_findmy_build_adv_data(const uint8_t key[FINDMY_KEY_LEN],
                                   uint8_t status_byte,
@@ -54,6 +53,5 @@ void yuitag_findmy_build_adv_data(const uint8_t key[FINDMY_KEY_LEN],
 // 由轮转公钥 X 推导静态随机地址: [k5..k1, k0|0xC0]
 void yuitag_findmy_key_to_addr(const uint8_t key[FINDMY_KEY_LEN],
                                uint8_t addrOut[6]);
-#endif // !IS_SPARKS
 
 #endif // YUITAG_ADV_H

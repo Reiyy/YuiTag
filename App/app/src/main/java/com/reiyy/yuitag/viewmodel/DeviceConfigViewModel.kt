@@ -59,6 +59,13 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
                 originalFindmyTxPower = entity?.findmyTxPower ?: memory?.findmyTxPower
 
                 val platform = entity?.firmwarePlatform ?: memory?.firmwarePlatform ?: ""
+                val isSparks = YuiTagProtocol.isSparks(
+                    name = entity?.deviceName ?: memory?.name,
+                    platform = platform,
+                    model = entity?.productModel ?: memory?.productModel,
+                    hasFixedKeys = !entity?.fixedKeysJson.isNullOrEmpty() || !memory?.fixedKeysJson.isNullOrEmpty()
+                )
+                val keyCount = entity?.fixedKeyCount ?: memory?.fixedKeyCount ?: YuiTagProtocol.FINDMY_DEFAULT_KEYS
 
                 _uiState.update {
                     it.copy(
@@ -69,7 +76,9 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
                         findmyPeriodIndex = originalFindmyPeriodIndex,
                         txPower = originalTxPower,
                         findmyTxPower = originalFindmyTxPower,
-                        firmwarePlatform = platform
+                        firmwarePlatform = platform,
+                        isSparks = isSparks,
+                        fixedKeyCount = keyCount
                     )
                 }
             } catch (e: Exception) {
@@ -279,7 +288,7 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
 
                 if (gattFindmyChanged) {
                     var findmyOk = true
-                    if (findmyEnabledSafe) {
+                    if (findmyEnabledSafe && !state.isSparks) {
                         val tsFrame = CryptoUtils.buildFindMyTimeSyncFrame(System.currentTimeMillis() / 1000, aesKey)
                         if (!session.writeCmdAwait(tsFrame)) {
                             findmyOk = false
@@ -373,6 +382,59 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
         _uiState.update { it.copy(saveError = null) }
     }
 
+    fun updateFixedKeyCount(count: Int) {
+        val safe = count.coerceIn(YuiTagProtocol.FINDMY_MIN_KEYS, YuiTagProtocol.FINDMY_MAX_KEYS)
+        _uiState.update { it.copy(fixedKeyCount = safe) }
+    }
+
+    fun dismissSyncKeyResult() {
+        _uiState.update { it.copy(syncKeyError = null, syncKeySuccess = false) }
+    }
+
+    /** 重新生成并同步固定密钥池至 Tag */
+    fun regenerateAndSyncFixedKeys() {
+        val deviceUid = uid ?: return
+        if (_uiState.value.isSyncingKeys) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSyncingKeys = true, syncKeyProgress = null, syncKeyError = null, syncKeySuccess = false) }
+            try {
+                val bleDevice = repository.getBluetoothDevice(deviceUid)
+                val device = repository.getDevice(deviceUid)
+                val aesKey = device?.aesKey
+                if (bleDevice == null || aesKey == null) {
+                    _uiState.update { it.copy(isSyncingKeys = false, syncKeyError = "设备不在范围内或未绑定") }
+                    return@launch
+                }
+                val count = _uiState.value.fixedKeyCount
+                val fixedKeys = CryptoUtils.generateFixedFindMyKeys(aesKey, count = count)
+                val result = repository.bleConnectionManager.withSession(deviceUid, bleDevice, aesKey) { session ->
+                    session.syncFixedKeys(fixedKeys) { curr, total ->
+                        _uiState.update { it.copy(syncKeyProgress = curr to total) }
+                    }
+                }
+                result.onSuccess { ok ->
+                    if (ok) {
+                        val json = CryptoUtils.serializeFixedKeys(fixedKeys)
+                        repository.updateFixedKeys(deviceUid, json, count)
+                        repository.updateFindMyEnabled(deviceUid, true)
+                        _uiState.update { it.copy(
+                            isSyncingKeys = false,
+                            syncKeySuccess = true,
+                            findmyEnabled = true
+                        ) }
+                        originalFindmyEnabled = true
+                    } else {
+                        _uiState.update { it.copy(isSyncingKeys = false, syncKeyError = "固定密钥同步失败，请重试") }
+                    }
+                }.onFailure { e ->
+                    _uiState.update { it.copy(isSyncingKeys = false, syncKeyError = e.message ?: "固定密钥同步失败") }
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isSyncingKeys = false, syncKeyError = e.message ?: "操作异常") }
+            }
+        }
+    }
+
     data class ConfigUiState(
         val advIntervalNormal: String = "",
         val advIntervalFind: String = "",
@@ -386,6 +448,12 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
         val findmyTxPower: Int? = null,
         val findmyTxPowerSupported: Boolean = false,
         val firmwarePlatform: String = "",
+        val isSparks: Boolean = false,
+        val fixedKeyCount: Int = YuiTagProtocol.FINDMY_DEFAULT_KEYS,
+        val isSyncingKeys: Boolean = false,
+        val syncKeyProgress: Pair<Int, Int>? = null,
+        val syncKeyError: String? = null,
+        val syncKeySuccess: Boolean = false,
         val isConnecting: Boolean = false,
         val connectError: String? = null,
         val isSaving: Boolean = false,

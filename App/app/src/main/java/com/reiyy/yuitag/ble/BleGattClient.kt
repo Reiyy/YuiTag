@@ -25,7 +25,8 @@ data class BindResult(
     val aesKey: ByteArray,
     val disInfo: YuiTagProtocol.DeviceDisInfo,
     val findMyOk: Boolean,
-    val isSparks: Boolean = false
+    val isSparks: Boolean = false,
+    val fixedKeys: List<CryptoUtils.FixedFindMyKey>? = null
 )
 
 class BleGattClient {
@@ -33,7 +34,7 @@ class BleGattClient {
     companion object {
         private const val TAG = "YuiTagGATT"
         private const val TIMEOUT_MS = 8000L
-        private const val BIND_TIMEOUT_MS = 25000L
+        private const val BIND_TIMEOUT_MS = 35000L
     }
 
     /**
@@ -124,10 +125,14 @@ class BleGattClient {
                 }
 
                 /** 绑定成功（FindMy 步骤失败不阻断绑定，findMyOk=false 由 UI 提供重试） */
-                fun finishBind(findMyOk: Boolean, isSparks: Boolean = false) {
+                fun finishBind(
+                    findMyOk: Boolean,
+                    isSparks: Boolean = false,
+                    fixedKeys: List<CryptoUtils.FixedFindMyKey>? = null
+                ) {
                     val key = aesKey
                     if (key == null) { fail("AES key lost"); return }
-                    if (!result.isCompleted) result.complete(Result.success(BindResult(key, disInfo, findMyOk, isSparks)))
+                    if (!result.isCompleted) result.complete(Result.success(BindResult(key, disInfo, findMyOk, isSparks, fixedKeys)))
                     try { gatt?.disconnect() } catch (_: Exception) {}
                 }
 
@@ -414,10 +419,77 @@ class BleGattClient {
                         coreVersion = disValues[YuiTagProtocol.SW_REV_UUID] ?: ""
                     )
 
-                    // 10. FindMy 校时 — Sparks 不支持，直接跳过
+                    // 10. FindMy 配置
                     if (isSparks) {
-                        FileLog.i("GATT", "Sparks 设备不支持 FindMy，跳过")
-                        finishBind(findMyOk = false, isSparks = true); return@launch
+                        report("正在生成FindMy密钥...")
+                        FileLog.i(TAG, ">>> Step 10 (Sparks): 批量同步固定密钥池 >>>")
+                        val fixedKeys = CryptoUtils.generateFixedFindMyKeys(aesKey!!, count = YuiTagProtocol.FINDMY_DEFAULT_KEYS)
+
+                        val paramC = paramChar ?: run { finishBind(findMyOk = false, isSparks = true); return@launch }
+                        gatt!!.setCharacteristicNotification(paramC, true)
+                        val paramCccd = paramC.getDescriptor(YuiTagProtocol.CCCD_UUID)
+                            ?: paramC.descriptors.firstOrNull { it.uuid.toString().contains("2902", true) }
+                        if (paramCccd != null) {
+                            paramCccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                            gatt!!.writeDescriptor(paramCccd)
+                            paramCccdEvt.await()
+                        }
+
+                        // 1. 发送 START 帧
+                        report("正在开始同步密钥...")
+                        val startFrame = CryptoUtils.buildKeysSyncStartFrame(fixedKeys.size, aesKey!!)
+                        paramC.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                        paramC.value = startFrame
+                        if (gatt!!.writeCharacteristic(paramC) == false) {
+                            FileLog.w("GATT", "Sparks KeysSync START 写入失败")
+                            finishBind(findMyOk = false, isSparks = true); return@launch
+                        }
+                        val startResp = paramNotifyEvt.await()
+                        if (startResp == null || YuiTagProtocol.extractStatus(startResp) != YuiTagProtocol.STATUS_SUCCESS) {
+                            FileLog.w("GATT", "Sparks KeysSync START 未确认: status=${startResp?.let { YuiTagProtocol.extractStatus(it) }}")
+                            finishBind(findMyOk = false, isSparks = true); return@launch
+                        }
+
+                        // 2. 发送各个 DATA 帧
+                        var dataOk = true
+                        for ((idx, k) in fixedKeys.withIndex()) {
+                            report("正在同步密钥 (${idx + 1}/${fixedKeys.size})...")
+                            val dataFrame = CryptoUtils.buildKeysSyncDataFrame(idx, k.publicKeyX, aesKey!!)
+                            paramC.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                            paramC.value = dataFrame
+                            if (gatt!!.writeCharacteristic(paramC) == false) {
+                                FileLog.w("GATT", "Sparks KeysSync DATA $idx 写入失败")
+                                dataOk = false; break
+                            }
+                            val dataResp = paramNotifyEvt.await()
+                            if (dataResp == null || YuiTagProtocol.extractStatus(dataResp) != YuiTagProtocol.STATUS_SUCCESS) {
+                                FileLog.w("GATT", "Sparks KeysSync DATA $idx 未确认: status=${dataResp?.let { YuiTagProtocol.extractStatus(it) }}")
+                                dataOk = false; break
+                            }
+                        }
+                        if (!dataOk) {
+                            finishBind(findMyOk = false, isSparks = true); return@launch
+                        }
+
+                        // 3. 发送 FINISH 帧
+                        report("正在校验并持久化密钥...")
+                        val finishFrame = CryptoUtils.buildKeysSyncFinishFrame(fixedKeys.size, aesKey!!)
+                        paramC.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                        paramC.value = finishFrame
+                        if (gatt!!.writeCharacteristic(paramC) == false) {
+                            FileLog.w("GATT", "Sparks KeysSync FINISH 写入失败")
+                            finishBind(findMyOk = false, isSparks = true); return@launch
+                        }
+                        val finishResp = paramNotifyEvt.await()
+                        if (finishResp == null || YuiTagProtocol.extractStatus(finishResp) != YuiTagProtocol.STATUS_SUCCESS) {
+                            FileLog.w("GATT", "Sparks KeysSync FINISH 未确认: status=${finishResp?.let { YuiTagProtocol.extractStatus(it) }}")
+                            finishBind(findMyOk = false, isSparks = true); return@launch
+                        }
+
+                        report("FindMy启动成功")
+                        FileLog.i(TAG, "══════ Sparks 固定密钥同步成功 (${fixedKeys.size} keys)! ══════")
+                        finishBind(findMyOk = true, isSparks = true, fixedKeys = fixedKeys)
+                        return@launch
                     }
                     report("正在配置FindMy...")
                     report("设备校时...")

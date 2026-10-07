@@ -31,6 +31,10 @@ class FindSession(
     private val paramChar: BluetoothGattCharacteristic?,
     private val aesKey: ByteArray?
 ) {
+    companion object {
+        private const val TAG = "FindSession"
+    }
+
     // 串行操作队列（仅 await 写/读操作持有；fire-and-forget 发送保持同步入队）
     private val opMutex = Mutex()
 
@@ -426,6 +430,53 @@ class FindSession(
     suspend fun writeFindMyTxPower(txPowerDbm: Int): Boolean {
         val key = aesKey ?: return false
         return writeParamAwait(CryptoUtils.buildFindMyTxPowerConfigFrame(txPowerDbm, key))
+    }
+
+    /**
+     * 将预生成的固定密钥组同步给 Sparks 设备:
+     * 1. START(total)
+     * 2. DATA(0..total-1)
+     * 3. FINISH(total)
+     */
+    suspend fun syncFixedKeys(
+        keys: List<CryptoUtils.FixedFindMyKey>,
+        onProgress: ((current: Int, total: Int) -> Unit)? = null
+    ): Boolean {
+        val key = aesKey ?: return false
+        val total = keys.size
+        if (total !in YuiTagProtocol.FINDMY_MIN_KEYS..YuiTagProtocol.FINDMY_MAX_KEYS) {
+            FileLog.w(TAG, "syncFixedKeys rejected: total $total out of [${YuiTagProtocol.FINDMY_MIN_KEYS}, ${YuiTagProtocol.FINDMY_MAX_KEYS}]")
+            return false
+        }
+
+        FileLog.i(TAG, "开始同步固定密钥池: 共 $total 个密钥")
+
+        // 1. 发送 START 帧
+        val startFrame = CryptoUtils.buildKeysSyncStartFrame(total, key)
+        if (!writeParamAwait(startFrame, timeoutMs = 5000L)) {
+            FileLog.w(TAG, "FixedKeys sync START 失败")
+            return false
+        }
+
+        // 2. 发送各个 DATA 帧
+        for ((idx, k) in keys.withIndex()) {
+            onProgress?.invoke(idx + 1, total)
+            val dataFrame = CryptoUtils.buildKeysSyncDataFrame(idx, k.publicKeyX, key)
+            if (!writeParamAwait(dataFrame, timeoutMs = 5000L)) {
+                FileLog.w(TAG, "FixedKeys sync DATA 失败: 序号 $idx")
+                return false
+            }
+        }
+
+        // 3. 发送 FINISH 帧
+        val finishFrame = CryptoUtils.buildKeysSyncFinishFrame(total, key)
+        if (!writeParamAwait(finishFrame, timeoutMs = 8000L)) {
+            FileLog.w(TAG, "FixedKeys sync FINISH 失败")
+            return false
+        }
+
+        FileLog.i(TAG, "固定密钥池同步成功: 共 $total 个密钥")
+        return true
     }
 
     // --- 断开与资源清理 ---

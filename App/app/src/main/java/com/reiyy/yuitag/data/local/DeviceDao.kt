@@ -74,6 +74,10 @@ interface DeviceDao {
     @Query("UPDATE devices SET findmyPeriodSec = :seconds WHERE uid = :uid")
     suspend fun updateFindMyPeriod(uid: String, seconds: Int)
 
+    /** 更新 Sparks 固定密钥池与配置数量 */
+    @Query("UPDATE devices SET fixedKeysJson = :keysJson, fixedKeyCount = :count WHERE uid = :uid")
+    suspend fun updateFixedKeys(uid: String, keysJson: String, count: Int)
+
     /** 更新 GATT 读取的设备信息（DIS）并持久化设备名 */
     @Query("UPDATE devices SET deviceName = :deviceName, serialNumber = :serialNumber, " +
         "firmwareVersion = :firmwareVersion, firmwarePlatform = :firmwarePlatform, " +

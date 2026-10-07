@@ -90,7 +90,9 @@ class DeviceRepository(
                     macAddress = device.macAddress.ifEmpty { existing.macAddress },
                     deviceName = device.deviceName.ifEmpty { existing.deviceName },
                     themePath = device.themePath.ifEmpty { existing.themePath },
-                    battery = if (device.battery >= 0) device.battery else existing.battery
+                    battery = if (device.battery >= 0) device.battery else existing.battery,
+                    fixedKeysJson = device.fixedKeysJson.ifEmpty { existing.fixedKeysJson },
+                    fixedKeyCount = device.fixedKeyCount ?: existing.fixedKeyCount
                 )
             } else device
             current + (device.uid to merged)
@@ -109,40 +111,7 @@ class DeviceRepository(
         _scannedDevices.value[uid]?.let { return it }
         // 回退到已绑定设备缓存（未扫描到的设备也能查询基本信息）
         _boundDevicesCache.value[uid]?.let { entity ->
-            return YuiTagDevice(
-                uid = entity.uid,
-                // name 恒为设备名（GATT/DIS），customName 仅为用户自定义展示名
-                name = entity.deviceName.ifEmpty { "YuiTag_${entity.uid.take(4)}" },
-                rssi = 0,
-                txPower = entity.txPower,
-                version = entity.protocolVersion,
-                battery = entity.battery,
-                isBound = true,
-                aesKey = entity.aesKey,
-                customName = entity.customName,
-                customIcon = entity.customIcon,
-                firmwareVersion = entity.firmwareVersion,
-                firmwarePlatform = entity.firmwarePlatform,
-                hardwareVersion = entity.hardwareVersion,
-                manufacturer = entity.manufacturer,
-                productName = entity.productName,
-                productModel = entity.productModel,
-                coreVersion = entity.coreVersion,
-                serialNumber = entity.serialNumber,
-                broadcastName = entity.broadcastName,
-                advIntervalNormal = entity.advIntervalNormal,
-                advIntervalFind = entity.advIntervalFind,
-                findmyEnabled = entity.findmyEnabled,
-                findmySupported = entity.findmySupported,
-                findmySeed = entity.findmySeed,
-                findmyPeriodSec = entity.findmyPeriodSec,
-                macAddress = entity.macAddress,
-                deviceName = entity.deviceName,
-                themePath = entity.themePath,
-                boundAt = entity.boundAt,
-                separationAlertEnabled = entity.separationAlertEnabled,
-                findmyTxPower = entity.findmyTxPower
-            )
+            return entity.toDomainModel().copy(rssi = 0)
         }
         return null
     }
@@ -182,7 +151,10 @@ class DeviceRepository(
         productModel: String = "",
         coreVersion: String = "",
         deviceName: String = "",
-        findmySupported: Boolean? = null
+        findmySupported: Boolean? = null,
+        findmyEnabled: Boolean? = null,
+        fixedKeysJson: String = "",
+        fixedKeyCount: Int? = null
     ) {
         // 新增设备默认排序排在最后
         val nextOrder = dao.maxSortOrder() + 1
@@ -203,9 +175,13 @@ class DeviceRepository(
             boundAt = System.currentTimeMillis(),
             deviceName = deviceName,
             sortOrder = nextOrder,
-            findmySupported = findmySupported
+            findmySupported = findmySupported,
+            findmyEnabled = findmyEnabled,
+            fixedKeysJson = fixedKeysJson,
+            fixedKeyCount = fixedKeyCount
         )
         dao.upsert(entity)
+        _boundDevicesCache.update { it + (uid to entity) }
 
         _scannedDevices.update { current ->
             val existing = current[uid]
@@ -224,7 +200,10 @@ class DeviceRepository(
                     coreVersion = coreVersion,
                     serialNumber = serialNumber,
                     deviceName = deviceName,
-                    findmySupported = findmySupported
+                    findmySupported = findmySupported,
+                    findmyEnabled = findmyEnabled ?: existing.findmyEnabled,
+                    fixedKeysJson = fixedKeysJson.ifEmpty { existing.fixedKeysJson },
+                    fixedKeyCount = fixedKeyCount ?: existing.fixedKeyCount
                 ))
             } else current
         }
@@ -513,6 +492,19 @@ class DeviceRepository(
         _boundDevicesCache.update { it + (uid to entity) }
     }
 
+    /** 更新 Sparks 固定密钥池与配置数量 */
+    suspend fun updateFixedKeys(uid: String, keysJson: String, count: Int) {
+        dao.updateFixedKeys(uid, keysJson, count)
+        _boundDevicesCache.update { current ->
+            val existing = current[uid]
+            if (existing != null) current + (uid to existing.copy(fixedKeysJson = keysJson, fixedKeyCount = count)) else current
+        }
+        _scannedDevices.update { current ->
+            val existing = current[uid]
+            if (existing != null) current + (uid to existing.copy(fixedKeysJson = keysJson, fixedKeyCount = count)) else current
+        }
+    }
+
     /** 备份恢复：合并导入单个设备 — 存在则 UPDATE（保留位置历史），不存在则 INSERT，并刷新内存缓存 */
     suspend fun restoreDevice(entity: DeviceEntity) {
         if (dao.getByUid(entity.uid) == null) {
@@ -548,7 +540,9 @@ class DeviceRepository(
                     findmyPeriodSec = entity.findmyPeriodSec,
                     macAddress = entity.macAddress,
                     deviceName = entity.deviceName,
-                    battery = entity.battery
+                    battery = entity.battery,
+                    fixedKeysJson = entity.fixedKeysJson,
+                    fixedKeyCount = entity.fixedKeyCount
                 ))
             } else current
         }
@@ -748,7 +742,9 @@ class DeviceRepository(
                         findmyPeriodSec = entity.findmyPeriodSec,
                         macAddress = entity.macAddress,
                         deviceName = entity.deviceName,
-                        battery = entity.battery
+                        battery = entity.battery,
+                        fixedKeysJson = entity.fixedKeysJson,
+                        fixedKeyCount = entity.fixedKeyCount
                     ))
                 } else current
             }

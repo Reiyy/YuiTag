@@ -9,6 +9,8 @@ import com.reiyy.yuitag.ble.FileLog
 import com.reiyy.yuitag.ble.FindMyBroadcastScanner
 import com.reiyy.yuitag.ble.YuiTagProtocol
 import com.reiyy.yuitag.data.DeviceRepository
+import com.reiyy.yuitag.data.YuiTagDevice
+import com.reiyy.yuitag.data.local.DeviceEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,6 +46,7 @@ class DevOptionsViewModel(application: Application) : AndroidViewModel(applicati
     private val scanner = FindMyBroadcastScanner(application)
     private var scanJob: Job? = null
     private val macToPubX = mutableMapOf<String, ByteArray>()
+    private val macToSlot = mutableMapOf<String, Int>()
 
     fun initialize(deviceUid: String) {
         if (uid != null) return
@@ -57,10 +60,14 @@ class DevOptionsViewModel(application: Application) : AndroidViewModel(applicati
                 ?: device?.broadcastName?.takeIf { it.isNotEmpty() }
                 ?: device?.name.orEmpty()
             originalBroadcastName = name
+
+            val isSparks = checkIsSparks(entity, device)
+
             _uiState.update {
                 it.copy(
                     broadcastName = name,
-                    findmySupported = entity?.findmySupported ?: device?.findmySupported
+                    findmySupported = entity?.findmySupported ?: device?.findmySupported,
+                    isSparks = isSparks
                 )
             }
         }
@@ -181,6 +188,36 @@ class DevOptionsViewModel(application: Application) : AndroidViewModel(applicati
         val deviceUid = uid ?: return
         viewModelScope.launch {
             val entity = repository.getDeviceEntity(deviceUid)
+            val device = repository.getDevice(deviceUid)
+            val isSparks = checkIsSparks(entity, device)
+
+            if (isSparks) {
+                val fixedKeys = getStoredFixedKeys(entity, device)
+                if (fixedKeys.isEmpty()) {
+                    Toast.makeText(getApplication(), "设备尚未同步固定密钥组，请先在配置页同步", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+
+                val sb = StringBuilder()
+                val devDisplayName = entity?.customName?.ifEmpty { entity.deviceName.ifEmpty { "YuiTag" } } ?: "YuiTag"
+                sb.appendLine("══════ Sparks 固定密钥组: $devDisplayName (共 ${fixedKeys.size} 个) ══════")
+                for ((idx, k) in fixedKeys.withIndex()) {
+                    val privHex = k.privateKey.joinToString("") { "%02x".format(it) }
+                    val pubXHex = k.publicKeyX.joinToString("") { "%02x".format(it) }
+                    val mac = CryptoUtils.deriveFindMyMac(k.publicKeyX)
+                    val hashedAdvKey = CryptoUtils.computeHashedAdvKey(k.publicKeyX)
+                    val hashedAdvKeyHex = hashedAdvKey.joinToString("") { "%02x".format(it) }
+                    sb.appendLine("Slot #$idx:")
+                    sb.appendLine("  MAC:                    $mac")
+                    sb.appendLine("  Public key X (hex):     $pubXHex")
+                    sb.appendLine("  Private key (hex):      $privHex")
+                    sb.appendLine("  Hashed adv key (hex):   $hashedAdvKeyHex")
+                }
+                FileLog.d("FindMyDebug", sb.toString())
+                Toast.makeText(getApplication(), "固定密钥组（共 ${fixedKeys.size} 个）已写入日志", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+
             val seed = entity?.findmySeed
             val aesKey = entity?.aesKey
             if (seed == null || aesKey == null) {
@@ -265,22 +302,49 @@ class DevOptionsViewModel(application: Application) : AndroidViewModel(applicati
                     return@launch
                 }
 
-                val seed = entity?.findmySeed ?: CryptoUtils.deriveFindMySeed(aesKey)
-                val periodSec = (entity?.findmyPeriodSec ?: device?.findmyPeriodSec) ?: 3600
-                val currentTime = System.currentTimeMillis() / 1000
-                val currentPeriodIndex = currentTime / periodSec
+                val isSparks = checkIsSparks(entity, device)
 
                 val macs = withContext(Dispatchers.IO) {
                     val result = mutableSetOf<String>()
-                    for (i in -WINDOW_RANGE..WINDOW_RANGE) {
-                        val periodIndex = currentPeriodIndex + i
-                        val privateKey = CryptoUtils.deriveFindMyPrivateKey(seed, periodIndex)
-                        val pubX = CryptoUtils.deriveFindMyPublicKeyX(privateKey)
-                        val mac = CryptoUtils.deriveFindMyMac(pubX)
-                        result.add(mac)
-                        macToPubX[mac] = pubX
+                    macToPubX.clear()
+                    macToSlot.clear()
+
+                    if (isSparks) {
+                        val fixedKeys = getStoredFixedKeys(entity, device).ifEmpty {
+                            val count = entity?.fixedKeyCount ?: device?.fixedKeyCount ?: YuiTagProtocol.FINDMY_DEFAULT_KEYS
+                            CryptoUtils.generateFixedFindMyKeys(aesKey, count)
+                        }
+
+                        for ((idx, k) in fixedKeys.withIndex()) {
+                            val mac = CryptoUtils.deriveFindMyMac(k.publicKeyX)
+                            result.add(mac)
+                            macToPubX[mac] = k.publicKeyX
+                            macToSlot[mac] = idx
+                        }
+                    } else {
+                        // Starlight 分支：基于当前时间与周期动态派生窗口密钥 (±5 时间窗口)
+                        val seed = entity?.findmySeed ?: CryptoUtils.deriveFindMySeed(aesKey)
+                        val periodSec = (entity?.findmyPeriodSec ?: device?.findmyPeriodSec) ?: 3600
+                        val currentTime = System.currentTimeMillis() / 1000
+                        val currentPeriodIndex = currentTime / periodSec
+
+                        for (i in -WINDOW_RANGE..WINDOW_RANGE) {
+                            val periodIndex = currentPeriodIndex + i
+                            val privateKey = CryptoUtils.deriveFindMyPrivateKey(seed, periodIndex)
+                            val pubX = CryptoUtils.deriveFindMyPublicKeyX(privateKey)
+                            val mac = CryptoUtils.deriveFindMyMac(pubX)
+                            result.add(mac)
+                            macToPubX[mac] = pubX
+                        }
                     }
                     result
+                }
+
+                if (macs.isEmpty()) {
+                    _uiState.update {
+                        it.copy(findMyBroadcast = FindMyBroadcastState(error = "无可用的 FindMy 候选 MAC 地址"))
+                    }
+                    return@launch
                 }
 
                 _uiState.update {
@@ -303,6 +367,7 @@ class DevOptionsViewModel(application: Application) : AndroidViewModel(applicati
                             if (!isActive) return@collect
                             val percent = signalPercent(result.rssi)
                             val pubX = macToPubX[result.macAddress.uppercase()]
+                            val slot = macToSlot[result.macAddress.uppercase()]
                             _uiState.update {
                                 it.copy(findMyBroadcast = it.findMyBroadcast.copy(
                                     isScanning = true,
@@ -313,6 +378,7 @@ class DevOptionsViewModel(application: Application) : AndroidViewModel(applicati
                                     lastSeenTime = result.timestamp,
                                     detectedMac = result.macAddress,
                                     pubXHex = pubX?.joinToString("") { "%02X".format(it) },
+                                    matchedSlot = slot,
                                     derivedMacCount = macs.size
                                 ))
                             }
@@ -321,7 +387,7 @@ class DevOptionsViewModel(application: Application) : AndroidViewModel(applicati
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(findMyBroadcast = FindMyBroadcastState(
-                        error = "密钥派生失败: ${e.message}"
+                        error = if (_uiState.value.isSparks) "加载固定密钥失败: ${e.message}" else "密钥派生失败: ${e.message}"
                     ))
                 }
             }
@@ -332,6 +398,7 @@ class DevOptionsViewModel(application: Application) : AndroidViewModel(applicati
         scanJob?.cancel()
         scanJob = null
         macToPubX.clear()
+        macToSlot.clear()
         _uiState.update { it.copy(findMyBroadcast = FindMyBroadcastState()) }
     }
 
@@ -344,6 +411,24 @@ class DevOptionsViewModel(application: Application) : AndroidViewModel(applicati
     override fun onCleared() {
         super.onCleared()
         scanJob?.cancel()
+    }
+
+    private fun checkIsSparks(entity: DeviceEntity?, device: YuiTagDevice?): Boolean {
+        return YuiTagProtocol.isSparks(
+            name = entity?.deviceName ?: device?.name,
+            platform = entity?.firmwarePlatform ?: device?.firmwarePlatform,
+            model = entity?.productModel ?: device?.productModel,
+            hasFixedKeys = !entity?.fixedKeysJson.isNullOrEmpty() || !device?.fixedKeysJson.isNullOrEmpty()
+        )
+    }
+
+    private fun getStoredFixedKeys(
+        entity: DeviceEntity?,
+        device: YuiTagDevice?
+    ): List<CryptoUtils.FixedFindMyKey> {
+        val json = entity?.fixedKeysJson?.takeIf { it.isNotEmpty() }
+            ?: device?.fixedKeysJson?.takeIf { it.isNotEmpty() }
+        return json?.let { CryptoUtils.deserializeFixedKeys(it) }.orEmpty()
     }
 
     companion object {
@@ -364,6 +449,7 @@ class DevOptionsViewModel(application: Application) : AndroidViewModel(applicati
         val lastSeenTime: Long? = null,
         val detectedMac: String? = null,
         val pubXHex: String? = null,
+        val matchedSlot: Int? = null,
         val derivedMacCount: Int = 0,
         val error: String? = null
     )
@@ -373,6 +459,7 @@ class DevOptionsViewModel(application: Application) : AndroidViewModel(applicati
         val isSaving: Boolean = false,
         val saveError: String? = null,
         val findmySupported: Boolean? = null,   // Find My 支持状态，false=设备不支持该功能
+        val isSparks: Boolean = false,
         val findMyStatus: YuiTagProtocol.FindMyStatus? = null,
         val findMyPeriodSec: Int? = null,
         val isFetchingFindMyStatus: Boolean = false,

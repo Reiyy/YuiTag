@@ -96,6 +96,15 @@ object YuiTagProtocol {
     const val CMD_FINDMY_TIME_SYNC      = 0x62.toByte()   // 校时
     const val CMD_FINDMY_STATUS         = 0x63.toByte()   // 查询 Find My 状态
     const val CMD_FINDMY_PERIOD_CONFIG  = 0x64.toByte()   // 密钥轮换时间窗口配置
+    const val CMD_FINDMY_KEYS_SYNC      = 0x66.toByte()   // 固定密钥组分片同步 (Sparks 低配版)
+
+    // Find My 固定密钥传输子操作码与参数边界
+    const val SUB_OP_KEYS_START         = 0x01.toByte()
+    const val SUB_OP_KEYS_DATA          = 0x02.toByte()
+    const val SUB_OP_KEYS_FINISH        = 0x03.toByte()
+    const val FINDMY_MIN_KEYS           = 5
+    const val FINDMY_MAX_KEYS           = 50
+    const val FINDMY_DEFAULT_KEYS       = 20
 
     // 绑定验证
     const val CMD_BIND_VERIFY         = 0x56.toByte()   // 绑定验证
@@ -516,9 +525,23 @@ object YuiTagProtocol {
     fun isVersionSupported(versionCode: Int): Boolean =
         versionCode in supportedProtocolVersions
 
-    /** 判断是否为低配版 Sparks 设备 */
+    /** 判断是否为低配版 Sparks 设备（按默认名称前缀判断） */
     fun isSparksDevice(name: String?): Boolean =
         name?.startsWith(DEVICE_NAME_PREFIX_SPARKS) == true
+
+    /** 判断是否为低配版 Sparks 设备（综合设备名称、固件平台、型号及固定密钥标记） */
+    fun isSparks(
+        name: String? = null,
+        platform: String? = null,
+        model: String? = null,
+        hasFixedKeys: Boolean = false
+    ): Boolean {
+        if (hasFixedKeys) return true
+        if (isSparksDevice(name)) return true
+        if (platform?.contains("Sparks", ignoreCase = true) == true) return true
+        if (model?.trim()?.equals("YLS05N", ignoreCase = true) == true) return true
+        return false
+    }
 
     // --- OTA 平台与支持能力识别 ---
 

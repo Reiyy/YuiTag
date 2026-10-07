@@ -37,7 +37,9 @@ data class YuiTagDevice(
     val deviceName: String = "",               // 设备名称 (DIS GATT)
     val boundAt: Long = 0,                     // 绑定时间戳
     val separationAlertEnabled: Boolean = false, // 遗落提醒开关
-    val findmyTxPower: Int = 0                 // Find My 广播发射功率 (dBm)
+    val findmyTxPower: Int = 0,                // Find My 广播发射功率 (dBm)
+    val fixedKeysJson: String = "",            // Sparks 固定密钥池 JSON
+    val fixedKeyCount: Int? = null             // Sparks 固定密钥池设定数量
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -74,6 +76,8 @@ data class YuiTagDevice(
             deviceName == other.deviceName &&
             boundAt == other.boundAt &&
             separationAlertEnabled == other.separationAlertEnabled &&
+            fixedKeysJson == other.fixedKeysJson &&
+            fixedKeyCount == other.fixedKeyCount &&
             bytesEq(aesKey, other.aesKey) &&
             bytesEq(findmySeed, other.findmySeed)
     }
@@ -84,6 +88,8 @@ data class YuiTagDevice(
         result = 31 * result + rssi
         result = 31 * result + txPower
         result = 31 * result + findmyTxPower
+        result = 31 * result + fixedKeysJson.hashCode()
+        result = 31 * result + (fixedKeyCount ?: 0)
         result = 31 * result + version
         result = 31 * result + battery
         result = 31 * result + advInterval

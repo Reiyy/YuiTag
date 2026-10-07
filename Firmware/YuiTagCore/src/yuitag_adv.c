@@ -128,7 +128,6 @@ size_t yuitag_adv_build_scan_rsp(const YuiTagDevice *dev,
     return 1;
 }
 
-#ifndef IS_SPARKS
 void yuitag_findmy_build_adv_data(const uint8_t key[FINDMY_KEY_LEN],
                                   uint8_t status_byte,
                                   uint8_t buf[31])
@@ -155,4 +154,3 @@ void yuitag_findmy_key_to_addr(const uint8_t key[FINDMY_KEY_LEN],
     addrOut[4] = key[1];
     addrOut[5] = key[0] | 0xC0;       // 静态随机地址标志 (最高两位置 1)
 }
-#endif // !IS_SPARKS

@@ -25,12 +25,19 @@ class LocationQueryHelper(
     suspend fun queryAndStore(uid: String): List<LocationEntity> {
         val entity = repository.getDeviceEntity(uid) ?: return emptyList()
 
-        val seed = resolveSeed(entity) ?: return emptyList()
-        val periodSec = entity.findmyPeriodSec ?: 3600
-        val lastTime = repository.getLatestLocation(uid)?.timestamp
+        val fixedKeys = if (entity.fixedKeysJson.isNotBlank()) {
+            CryptoUtils.deserializeFixedKeys(entity.fixedKeysJson)
+        } else emptyList()
 
         val results = withContext(Dispatchers.IO) {
-            queryService.queryLocations(uid, seed, periodSec, lastTime)
+            if (fixedKeys.isNotEmpty()) {
+                queryService.queryFixedLocations(uid, fixedKeys)
+            } else {
+                val seed = resolveSeed(entity) ?: return@withContext emptyList()
+                val periodSec = entity.findmyPeriodSec ?: 3600
+                val lastTime = repository.getLatestLocation(uid)?.timestamp
+                queryService.queryLocations(uid, seed, periodSec, lastTime)
+            }
         }
         if (results.isNotEmpty()) {
             repository.insertLocations(results)
@@ -41,7 +48,7 @@ class LocationQueryHelper(
     /** 设备是否具备可查询的密钥（用于前置 Toast 提示） */
     suspend fun hasQueryableKey(uid: String): Boolean {
         val entity = repository.getDeviceEntity(uid) ?: return false
-        return entity.findmySeed != null || entity.aesKey != null
+        return entity.fixedKeysJson.isNotBlank() || entity.findmySeed != null || entity.aesKey != null
     }
 
     /** 后端地址是否已配置（用于前置 Toast 提示） */

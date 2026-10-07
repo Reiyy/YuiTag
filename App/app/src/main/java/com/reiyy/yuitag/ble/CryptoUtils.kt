@@ -277,6 +277,124 @@ object CryptoUtils {
         return aesCtrEncrypt(aesKey, plaintext)
     }
 
+    /** 构建 Find My 固定密钥同步 START 帧: [0x66][0x01][Total(1B)][0x00][CRC] → AES 加密 */
+    fun buildKeysSyncStartFrame(total: Int, aesKey: ByteArray): ByteArray {
+        val plaintext = byteArrayOf(
+            YuiTagProtocol.CMD_FINDMY_KEYS_SYNC,
+            YuiTagProtocol.SUB_OP_KEYS_START,
+            total.toByte(),
+            0x00.toByte(),
+            0x00.toByte()
+        )
+        plaintext[4] = crc8(plaintext, 0, 4)
+        FileLog.d(TAG, "构建KeysSync START帧: total=$total")
+        return aesCtrEncrypt(aesKey, plaintext)
+    }
+
+    /** 构建 Find My 固定密钥同步 DATA 帧: [0x66][0x02][Index(1B)][PubKeyX(28B)][CRC] → AES 加密 */
+    fun buildKeysSyncDataFrame(index: Int, pubKeyX: ByteArray, aesKey: ByteArray): ByteArray {
+        require(pubKeyX.size == 28) { "pubKeyX must be 28 bytes" }
+        val plaintext = ByteArray(3 + 28 + 1)
+        plaintext[0] = YuiTagProtocol.CMD_FINDMY_KEYS_SYNC
+        plaintext[1] = YuiTagProtocol.SUB_OP_KEYS_DATA
+        plaintext[2] = index.toByte()
+        System.arraycopy(pubKeyX, 0, plaintext, 3, 28)
+        plaintext[31] = crc8(plaintext, 0, 31)
+        return aesCtrEncrypt(aesKey, plaintext)
+    }
+
+    /** 构建 Find My 固定密钥同步 FINISH 帧: [0x66][0x03][Total(1B)][0x00][CRC] → AES 加密 */
+    fun buildKeysSyncFinishFrame(total: Int, aesKey: ByteArray): ByteArray {
+        val plaintext = byteArrayOf(
+            YuiTagProtocol.CMD_FINDMY_KEYS_SYNC,
+            YuiTagProtocol.SUB_OP_KEYS_FINISH,
+            total.toByte(),
+            0x00.toByte(),
+            0x00.toByte()
+        )
+        plaintext[4] = crc8(plaintext, 0, 4)
+        FileLog.d(TAG, "构建KeysSync FINISH帧: total=$total")
+        return aesCtrEncrypt(aesKey, plaintext)
+    }
+
+    /** 固定 Find My 密钥实体模型 (供低配版 Sparks 轮换与解密使用) */
+    data class FixedFindMyKey(
+        val index: Int,
+        val privateKey: ByteArray,
+        val publicKeyX: ByteArray,
+        val hashedAdvKey: ByteArray
+    ) {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is FixedFindMyKey) return false
+            return index == other.index &&
+                privateKey.contentEquals(other.privateKey) &&
+                publicKeyX.contentEquals(other.publicKeyX) &&
+                hashedAdvKey.contentEquals(other.hashedAdvKey)
+        }
+
+        override fun hashCode(): Int {
+            var result = index
+            result = 31 * result + privateKey.contentHashCode()
+            result = 31 * result + publicKeyX.contentHashCode()
+            result = 31 * result + hashedAdvKey.contentHashCode()
+            return result
+        }
+    }
+
+    /** 为 Sparks 设备预先批量生成 N 个固定密钥 (N 介于 5..50) */
+    fun generateFixedFindMyKeys(
+        seed: ByteArray,
+        count: Int = YuiTagProtocol.FINDMY_DEFAULT_KEYS,
+        periodSec: Int = 3600
+    ): List<FixedFindMyKey> {
+        val safeCount = count.coerceIn(YuiTagProtocol.FINDMY_MIN_KEYS, YuiTagProtocol.FINDMY_MAX_KEYS)
+        val randomBase = (System.currentTimeMillis() / 1000L) - (1000..999999).random()
+        return (0 until safeCount).map { i ->
+            val fakeTimestamp = randomBase + i.toLong() * periodSec
+            val periodIndex = fakeTimestamp / periodSec
+            val priv = deriveFindMyPrivateKey(seed, periodIndex)
+            val pubX = deriveFindMyPublicKeyX(priv)
+            val hashed = computeHashedAdvKey(pubX)
+            FixedFindMyKey(i, priv, pubX, hashed)
+        }
+    }
+
+    /** 序列化固定密钥列表为 JSON 字符串 */
+    fun serializeFixedKeys(keys: List<FixedFindMyKey>): String {
+        val array = org.json.JSONArray()
+        for (k in keys) {
+            val obj = org.json.JSONObject()
+            obj.put("index", k.index)
+            obj.put("priv", android.util.Base64.encodeToString(k.privateKey, android.util.Base64.NO_WRAP))
+            obj.put("pubX", android.util.Base64.encodeToString(k.publicKeyX, android.util.Base64.NO_WRAP))
+            obj.put("hash", android.util.Base64.encodeToString(k.hashedAdvKey, android.util.Base64.NO_WRAP))
+            array.put(obj)
+        }
+        return array.toString()
+    }
+
+    /** 从 JSON 字符串反序列化固定密钥列表 */
+    fun deserializeFixedKeys(json: String): List<FixedFindMyKey> {
+        if (json.isBlank()) return emptyList()
+        return try {
+            val array = org.json.JSONArray(json)
+            val list = mutableListOf<FixedFindMyKey>()
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                val idx = obj.getInt("index")
+                val priv = android.util.Base64.decode(obj.getString("priv"), android.util.Base64.NO_WRAP)
+                val pubX = android.util.Base64.decode(obj.getString("pubX"), android.util.Base64.NO_WRAP)
+                val hash = android.util.Base64.decode(obj.getString("hash"), android.util.Base64.NO_WRAP)
+                list.add(FixedFindMyKey(idx, priv, pubX, hash))
+            }
+            list
+        } catch (e: Exception) {
+            FileLog.w(TAG, "解析固定密钥JSON失败: ${e.message}")
+            emptyList()
+        }
+    }
+
     // --- Find My 密钥派生 ---
 
     /**

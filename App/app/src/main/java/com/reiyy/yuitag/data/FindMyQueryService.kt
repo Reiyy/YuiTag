@@ -150,9 +150,6 @@ class FindMyQueryService(private val context: Context) {
         lastLocationTime: Long?
     ): List<LocationEntity> {
         val nowSec = System.currentTimeMillis() / 1000
-        val batchLimit = getBatchKeyLimit().coerceAtLeast(1)
-        val retryCount = getChunkRetryCount().coerceAtLeast(0)
-        val retryDelayMs = getChunkRetryDelaySec().coerceAtLeast(0) * 1000L
         val extension = computeExtensionSeconds(periodSec)
         val defaultStart = if (lastLocationTime != null) {
             maxOf(lastLocationTime - extension, nowSec - EXTENSION_DAYS * 86400L)
@@ -181,6 +178,37 @@ class FindMyQueryService(private val context: Context) {
             hashedKeyToPeriodIndex[hashedKeyB64] = periodIdx
         }
 
+        return processKeyBatch(uid, hashedKeyToPrivateKey, hashedKeyToPeriodIndex)
+    }
+
+    /** 基于 Sparks 预生成固定密钥池查询位置 */
+    suspend fun queryFixedLocations(
+        uid: String,
+        fixedKeys: List<CryptoUtils.FixedFindMyKey>
+    ): List<LocationEntity> {
+        if (fixedKeys.isEmpty()) return emptyList()
+        FileLog.d(TAG, "固定密钥查询: uid=$uid, ${fixedKeys.size} 个密钥")
+
+        val hashedKeyToPrivateKey = mutableMapOf<String, ByteArray>()
+        val hashedKeyToPeriodIndex = mutableMapOf<String, Long>()
+
+        for (k in fixedKeys) {
+            val hashedKeyB64 = Base64.encodeToString(k.hashedAdvKey, Base64.NO_WRAP)
+            hashedKeyToPrivateKey[hashedKeyB64] = k.privateKey
+            hashedKeyToPeriodIndex[hashedKeyB64] = k.index.toLong()
+        }
+
+        return processKeyBatch(uid, hashedKeyToPrivateKey, hashedKeyToPeriodIndex)
+    }
+
+    private suspend fun processKeyBatch(
+        uid: String,
+        hashedKeyToPrivateKey: Map<String, ByteArray>,
+        hashedKeyToPeriodIndex: Map<String, Long>
+    ): List<LocationEntity> {
+        val batchLimit = getBatchKeyLimit().coerceAtLeast(1)
+        val retryCount = getChunkRetryCount().coerceAtLeast(0)
+        val retryDelayMs = getChunkRetryDelaySec().coerceAtLeast(0) * 1000L
         val hashedKeys = hashedKeyToPrivateKey.keys.toList()
         val results = mutableListOf<LocationEntity>()
 

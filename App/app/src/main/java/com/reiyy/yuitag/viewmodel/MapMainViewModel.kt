@@ -711,21 +711,45 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
                 val name = device?.name ?: "YuiTag_${uid.take(4)}"
                 val version = device?.version ?: 0
 
-                repository.bindDevice(uid = uid, serialNumber = disInfo.serialNumber, aesKey = bindResult.aesKey,
-                    customName = name, deviceType = DeviceType.CUSTOM, protocolVersion = version,
-                    firmwareVersion = disInfo.firmwareVer, firmwarePlatform = disInfo.firmwarePlatform,
-                    hardwareVersion = disInfo.hardwareVersion, manufacturer = disInfo.manufacturer,
-                    productName = disInfo.productName, productModel = disInfo.productModel,
+                val fixedKeysJson = if (bindResult.fixedKeys != null) {
+                    CryptoUtils.serializeFixedKeys(bindResult.fixedKeys)
+                } else ""
+                val fixedKeyCount = bindResult.fixedKeys?.size
+
+                repository.bindDevice(
+                    uid = uid,
+                    serialNumber = disInfo.serialNumber,
+                    aesKey = bindResult.aesKey,
+                    customName = name,
+                    deviceType = DeviceType.CUSTOM,
+                    protocolVersion = version,
+                    firmwareVersion = disInfo.firmwareVer,
+                    firmwarePlatform = disInfo.firmwarePlatform,
+                    hardwareVersion = disInfo.hardwareVersion,
+                    manufacturer = disInfo.manufacturer,
+                    productName = disInfo.productName,
+                    productModel = disInfo.productModel,
                     coreVersion = disInfo.coreVersion,
                     deviceName = disInfo.deviceName,
-                    findmySupported = if (bindResult.isSparks) false else null)
+                    findmySupported = true,
+                    findmyEnabled = if (bindResult.findMyOk) true else null,
+                    fixedKeysJson = fixedKeysJson,
+                    fixedKeyCount = fixedKeyCount
+                )
 
                 // 持久化 MAC 地址，供直接回连使用
                 repository.saveMacAddress(uid, bleDevice.address)
 
                 if (bindResult.isSparks) {
-                    // Sparks 不支持 FindMy，直接标记成功
-                    _uiState.update { it.copy(bindingUid = null, bindSuccessUid = uid) }
+                    if (bindResult.findMyOk) {
+                        _uiState.update { it.copy(bindingUid = null, bindSuccessUid = uid) }
+                    } else {
+                        _uiState.update { it.copy(
+                            bindingUid = null,
+                            bindFindMyFailedUid = uid,
+                            bindError = "绑定成功，但 FindMy 密钥同步失败"
+                        ) }
+                    }
                 } else {
                     // 派生并保存 Find My 种子（与 AES 密钥确定对应，与 FindMy 初始化成功与否无关）
                     val seed = CryptoUtils.deriveFindMySeed(bindResult.aesKey)
@@ -755,22 +779,50 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
         val aesKey = device?.aesKey ?: return
         if (_uiState.value.bindingUid != null) return
 
+        val isSparks = YuiTagProtocol.isSparks(
+            name = device.name,
+            platform = device.firmwarePlatform,
+            model = device.productModel,
+            hasFixedKeys = device.fixedKeysJson.isNotEmpty()
+        )
+
         _uiState.update { it.copy(bindingUid = uid, bindError = null, bindProgress = "正在配置FindMy...") }
 
         viewModelScope.launch {
-            // 复用统一会话完成校时并启用 FindMy
-            val result = repository.bleConnectionManager.withSession(uid, bleDevice, aesKey) { session ->
-                val now = System.currentTimeMillis() / 1000
-                session.timeSync(now) && session.writeFindMyEnable(true)
-            }
-            result.onSuccess { ok ->
-                if (ok) {
-                    _uiState.update { it.copy(bindingUid = null, bindFindMyFailedUid = null, bindSuccessUid = uid) }
-                } else {
-                    _uiState.update { it.copy(bindingUid = null, bindFindMyFailedUid = uid, bindError = "FindMy 初始化失败，请重试") }
+            if (isSparks) {
+                // Sparks: 生成固定密钥并同步
+                val targetCount = device.fixedKeyCount ?: YuiTagProtocol.FINDMY_DEFAULT_KEYS
+                val fixedKeys = CryptoUtils.generateFixedFindMyKeys(aesKey, count = targetCount)
+                val result = repository.bleConnectionManager.withSession(uid, bleDevice, aesKey) { session ->
+                    session.syncFixedKeys(fixedKeys)
                 }
-            }.onFailure { e ->
-                _uiState.update { it.copy(bindingUid = null, bindFindMyFailedUid = uid, bindError = e.message ?: "FindMy 初始化失败") }
+                result.onSuccess { ok ->
+                    if (ok) {
+                        val json = CryptoUtils.serializeFixedKeys(fixedKeys)
+                        repository.updateFixedKeys(uid, json, fixedKeys.size)
+                        repository.updateFindMyEnabled(uid, true)
+                        _uiState.update { it.copy(bindingUid = null, bindFindMyFailedUid = null, bindSuccessUid = uid) }
+                    } else {
+                        _uiState.update { it.copy(bindingUid = null, bindFindMyFailedUid = uid, bindError = "FindMy 密钥同步失败，请重试") }
+                    }
+                }.onFailure { e ->
+                    _uiState.update { it.copy(bindingUid = null, bindFindMyFailedUid = uid, bindError = e.message ?: "FindMy 密钥同步失败") }
+                }
+            } else {
+                // Starlight: 校时并启用
+                val result = repository.bleConnectionManager.withSession(uid, bleDevice, aesKey) { session ->
+                    val now = System.currentTimeMillis() / 1000
+                    session.timeSync(now) && session.writeFindMyEnable(true)
+                }
+                result.onSuccess { ok ->
+                    if (ok) {
+                        _uiState.update { it.copy(bindingUid = null, bindFindMyFailedUid = null, bindSuccessUid = uid) }
+                    } else {
+                        _uiState.update { it.copy(bindingUid = null, bindFindMyFailedUid = uid, bindError = "FindMy 初始化失败，请重试") }
+                    }
+                }.onFailure { e ->
+                    _uiState.update { it.copy(bindingUid = null, bindFindMyFailedUid = uid, bindError = e.message ?: "FindMy 初始化失败") }
+                }
             }
         }
     }

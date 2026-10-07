@@ -70,13 +70,13 @@ void platform_findmy_derive_seed(const uint8_t aesKey[16],
                                   uint8_t seedOut[32]);
 void platform_findmy_derive_private_key(const uint8_t seed[32],
                                          uint32_t period, uint8_t out[28]);
+#endif
 
-// ---- FindMy 广播控制回调 (仅 Starlight) ----
+// ---- FindMy 广播控制回调 ----
 bool platform_findmy_adv_start(const uint8_t key[28], uint8_t status_byte);
 bool platform_findmy_adv_update_data(const uint8_t key[28], uint8_t status_byte);
 void platform_findmy_adv_stop(void);
 void platform_findmy_adv_set_tx_power(int8_t power_dbm);
-#endif
 
 // ---- 定时器抽象 (替代 Zephyr k_timer / SiLabs sleeptimer) ----
 typedef void (*platform_timer_callback_t)(void *user_data);

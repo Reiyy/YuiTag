@@ -8,9 +8,7 @@
 #include "yuitag_buzzer_types.h"
 #include "yuitag_platform_api.h"
 
-#ifndef IS_SPARKS
 #include "yuitag_findmy.h"
-#endif
 
 #include <string.h>
 #include <stdio.h>
@@ -82,7 +80,6 @@ void yuitag_device_init(YuiTagDevice *dev, const uint8_t mac[6])
         platform_storage_save_u16(NVM3_KEY_TX_POWER, (uint16_t)(uint8_t)dev->txPower);
     }
 
-#ifndef IS_SPARKS
     uint16_t rawFmPower = platform_storage_load_u16(NVM3_KEY_FINDMY_TX_POWER, 0x7FFF);
     if (rawFmPower == 0x7FFF) {
         dev->findmyTxPower = (int8_t)DEFAULT_FINDMY_TX_POWER;
@@ -96,10 +93,11 @@ void yuitag_device_init(YuiTagDevice *dev, const uint8_t mac[6])
     }
     platform_findmy_adv_set_tx_power(dev->findmyTxPower);
 
+#ifndef IS_SPARKS
     dev->findmyEnabled = platform_storage_load_bool(NVM3_KEY_FINDMY_ENABLED, true);
 #else
-    dev->findmyTxPower = (int8_t)DEFAULT_BLE_TX_POWER;
-    dev->findmyEnabled = platform_storage_load_bool(NVM3_KEY_FINDMY_ENABLED, false);
+    uint16_t savedKeyCount = platform_storage_load_u16(NVM3_KEY_FINDMY_KEY_COUNT, 0);
+    dev->findmyEnabled = platform_storage_load_bool(NVM3_KEY_FINDMY_ENABLED, (savedKeyCount >= FINDMY_MIN_KEYS));
 #endif
 
     if (dev->isBound) {
@@ -531,9 +529,7 @@ void yuitag_device_clear_binding(YuiTagDevice *dev)
 
     platform_storage_clear_all();
 
-#ifndef IS_SPARKS
     yuitag_findmy_clear_seed();
-#endif
 
     if (dev->shortUid[0] == 0 && dev->shortUid[1] == 0) {
         uint8_t mac[6];
@@ -546,10 +542,7 @@ void yuitag_device_clear_binding(YuiTagDevice *dev)
     dev->findModeInterval = ADV_INTERVAL_FIND_MS;
     dev->savedAdvInterval = dev->advInterval;
     dev->findmyEnabled = false;
-
-#ifndef IS_SPARKS
     dev->pendingFindmyChange = true;
-#endif
 
     platform_storage_save_string(NVM3_KEY_DEV_NAME, dev->deviceName);
     platform_storage_save_u16(NVM3_KEY_ADV_INTERVAL, dev->advInterval);
@@ -623,11 +616,7 @@ size_t yuitag_device_param_read(YuiTagDevice *dev, uint8_t *buf, size_t maxLen)
         nameLen = DEVICE_NAME_MAX_LEN;
     }
 
-#ifdef IS_SPARKS
-    size_t total = 1 + nameLen + 9;
-#else
     size_t total = 1 + nameLen + 10;
-#endif
     if (total > maxLen) {
         return 0;
     }
@@ -639,28 +628,17 @@ size_t yuitag_device_param_read(YuiTagDevice *dev, uint8_t *buf, size_t maxLen)
     buf[3 + nameLen] = dev->findModeInterval & 0xFF;
     buf[4 + nameLen] = (dev->findModeInterval >> 8) & 0xFF;
 
-#ifdef IS_SPARKS
-    buf[5 + nameLen] = 0xFF;
-    buf[6 + nameLen] = 2;
-#else
     buf[5 + nameLen] = dev->findmyEnabled ? 1 : 0;
     buf[6 + nameLen] = yuitag_findmy_period_seconds_to_index(yuitag_findmy_get_period());
-#endif
 
     buf[7 + nameLen] = (uint8_t)dev->txPower;
     buf[8 + nameLen] = (uint8_t)(int8_t)HW_TX_POWER_MIN;
     buf[9 + nameLen] = (uint8_t)(int8_t)HW_TX_POWER_MAX;
-#ifndef IS_SPARKS
     buf[10 + nameLen] = (uint8_t)dev->findmyTxPower;
 
     platform_log("[PARAM] Read: name=%s adv=%dms find=%dms findmy=%d period=%d txPower=%d findmyTxPower=%d",
                  dev->deviceName, dev->advInterval, dev->findModeInterval,
                  dev->findmyEnabled, buf[6 + nameLen], dev->txPower, dev->findmyTxPower);
-#else
-    platform_log("[PARAM] Read: name=%s adv=%dms find=%dms txPower=%d",
-                 dev->deviceName, dev->advInterval, dev->findModeInterval,
-                 dev->txPower);
-#endif
     return total;
 }
 
@@ -754,16 +732,28 @@ uint8_t yuitag_device_param_write(YuiTagDevice *dev, const uint8_t *cipherData, 
         }
         break;
     }
-#ifndef IS_SPARKS
+    case CMD_FINDMY_KEYS_SYNC: {
+        status = yuitag_device_handle_keys_sync(dev, decBuf, len);
+        break;
+    }
     case CMD_FINDMY_ENABLE: {
         if (len >= 3) {
             uint8_t action = decBuf[1];
             if (action == ACTION_ON) {
+#ifndef IS_SPARKS
                 if (!yuitag_findmy_is_time_synced()) {
                     platform_log("[PARAM] FindMy enable rejected: time not synced");
                     status = STATUS_FAILED;
                     break;
                 }
+#else
+                uint16_t count = platform_storage_load_u16(NVM3_KEY_FINDMY_KEY_COUNT, 0);
+                if (count < FINDMY_MIN_KEYS) {
+                    platform_log("[PARAM] FindMy enable rejected: no keys configured (%d)", count);
+                    status = STATUS_FAILED;
+                    break;
+                }
+#endif
                 dev->findmyEnabled = true;
                 dev->pendingFindmyChange = true;
                 dev->pendingParamSave = true;
@@ -782,6 +772,7 @@ uint8_t yuitag_device_param_write(YuiTagDevice *dev, const uint8_t *cipherData, 
     case CMD_FINDMY_PERIOD_CONFIG: {
         if (yuitag_device_findmy_period_config(decBuf, len)) {
             dev->pendingParamSave = true;
+            dev->pendingFindmyChange = true;
             status = STATUS_SUCCESS;
         }
         break;
@@ -802,7 +793,6 @@ uint8_t yuitag_device_param_write(YuiTagDevice *dev, const uint8_t *cipherData, 
         }
         break;
     }
-#endif
     default:
         status = STATUS_UNKNOWN_CMD;
         break;
@@ -810,6 +800,122 @@ uint8_t yuitag_device_param_write(YuiTagDevice *dev, const uint8_t *cipherData, 
 
     platform_log("[PARAM] cmdId=0x%02X -> status=0x%02X", cmdId, status);
     return status;
+}
+
+static uint64_t s_keys_rx_mask = 0;
+static uint8_t  s_keys_expected_total = 0;
+static uint32_t s_keys_session_start_ms = 0;
+
+uint8_t yuitag_device_handle_keys_sync(YuiTagDevice *dev, const uint8_t *decBuf, size_t len)
+{
+    if (!dev || !decBuf || len < 3) {
+        return STATUS_FAILED;
+    }
+
+    uint8_t subOp = decBuf[1];
+
+    switch (subOp) {
+    case SUB_OP_KEYS_START: {
+        if (len < 5) {
+            return STATUS_FAILED;
+        }
+        uint8_t total = decBuf[2];
+        if (total < FINDMY_MIN_KEYS || total > FINDMY_MAX_KEYS) {
+            platform_log("[KEYS_SYNC] START rejected: total=%d out of [%d, %d]",
+                         total, FINDMY_MIN_KEYS, FINDMY_MAX_KEYS);
+            return STATUS_FAILED;
+        }
+
+        s_keys_expected_total = total;
+        s_keys_rx_mask = 0;
+        s_keys_session_start_ms = platform_millis();
+
+        platform_log("[KEYS_SYNC] START session: expecting %d keys", total);
+        return STATUS_SUCCESS;
+    }
+
+    case SUB_OP_KEYS_DATA: {
+        if (len < (3 + FINDMY_KEY_LEN + 1)) {
+            platform_log("[KEYS_SYNC] DATA rejected: len=%d", len);
+            return STATUS_FAILED;
+        }
+        if (s_keys_expected_total < FINDMY_MIN_KEYS) {
+            platform_log("[KEYS_SYNC] DATA rejected: no session");
+            return STATUS_FAILED;
+        }
+        if ((platform_millis() - s_keys_session_start_ms) > 30000UL) {
+            platform_log("[KEYS_SYNC] DATA rejected: timeout");
+            s_keys_expected_total = 0;
+            return STATUS_FAILED;
+        }
+
+        uint8_t index = decBuf[2];
+        if (index >= s_keys_expected_total) {
+            platform_log("[KEYS_SYNC] DATA rejected: index=%d >= %d",
+                         index, s_keys_expected_total);
+            return STATUS_FAILED;
+        }
+
+        platform_storage_save_bytes(NVM3_KEY_FINDMY_KEY_BASE + index, &decBuf[3], FINDMY_KEY_LEN);
+        s_keys_rx_mask |= ((uint64_t)1 << index);
+        platform_log("[KEYS_SYNC] DATA: slot %d/%d saved to storage", index, s_keys_expected_total);
+        return STATUS_SUCCESS;
+    }
+
+    case SUB_OP_KEYS_FINISH: {
+        if (len < 5) {
+            return STATUS_FAILED;
+        }
+        uint8_t total = decBuf[2];
+        if (total != s_keys_expected_total || s_keys_expected_total < FINDMY_MIN_KEYS) {
+            platform_log("[KEYS_SYNC] FINISH rejected: total %d != expected %d",
+                         total, s_keys_expected_total);
+            return STATUS_FAILED;
+        }
+
+        uint64_t expectedMask = (total == 64) ? 0xFFFFFFFFFFFFFFFFULL : (((uint64_t)1 << total) - 1);
+        if (s_keys_rx_mask != expectedMask) {
+            platform_log("[KEYS_SYNC] FINISH rejected: missing packets (mask=0x%llX)",
+                         (unsigned long long)s_keys_rx_mask);
+            return STATUS_FAILED;
+        }
+
+        uint16_t oldCount = platform_storage_load_u16(NVM3_KEY_FINDMY_KEY_COUNT, 0);
+        for (uint16_t i = total; i < oldCount && i <= FINDMY_MAX_KEYS; i++) {
+            platform_storage_remove(NVM3_KEY_FINDMY_KEY_BASE + i);
+        }
+
+        platform_storage_save_u16(NVM3_KEY_FINDMY_KEY_COUNT, (uint16_t)total);
+        platform_storage_save_u16(NVM3_KEY_FINDMY_CURRENT_IDX, 0);
+
+        dev->findmyEnabled = true;
+        dev->pendingFindmyChange = true;
+        dev->pendingParamSave = true;
+
+#ifdef IS_SPARKS
+        yuitag_findmy_reload_keys();
+#endif
+
+        platform_log("[KEYS_SYNC] FINISH OK: %d keys verified", total);
+        s_keys_expected_total = 0;
+        s_keys_rx_mask = 0;
+        return STATUS_SUCCESS;
+    }
+
+    default:
+        platform_log("[KEYS_SYNC] Unknown subOp: 0x%02X", subOp);
+        return STATUS_FAILED;
+    }
+}
+
+bool yuitag_device_findmy_period_config(const uint8_t *decryptedPayload, size_t len)
+{
+    if (len < 3) return false;
+    uint8_t index = decryptedPayload[1];
+    uint32_t seconds = yuitag_findmy_period_index_to_seconds(index);
+    yuitag_findmy_set_period(seconds);
+    platform_log("[PARAM] FindMy period: index=%d -> %lus", index, seconds);
+    return true;
 }
 
 #ifndef IS_SPARKS
@@ -827,16 +933,6 @@ uint8_t yuitag_device_findmy_handle_time_sync(const uint8_t *plain, size_t len)
     bool ok = yuitag_findmy_time_sync(timestamp);
     platform_log("[FINDMY] TIME_SYNC: unix=%lu ok=%d", timestamp, ok);
     return ok ? STATUS_SUCCESS : STATUS_FAILED;
-}
-
-bool yuitag_device_findmy_period_config(const uint8_t *decryptedPayload, size_t len)
-{
-    if (len < 3) return false;
-    uint8_t index = decryptedPayload[1];
-    uint32_t seconds = yuitag_findmy_period_index_to_seconds(index);
-    yuitag_findmy_set_period(seconds);
-    platform_log("[PARAM] FindMy period: index=%d -> %lus", index, seconds);
-    return true;
 }
 #endif
 
@@ -857,17 +953,15 @@ void yuitag_device_process_events(YuiTagDevice *dev)
     // 3. device tick -> update adv if needed
     if (yuitag_device_tick(dev)) {
         platform_ble_update_advertising(dev, true);
-#ifndef IS_SPARKS
         if (dev->findmyEnabled) {
             yuitag_findmy_update_battery(dev->batteryLevel);
         }
-#endif
     }
 
-#ifndef IS_SPARKS
     if (dev->findmyEnabled) {
         yuitag_findmy_tick();
     }
+#ifndef IS_SPARKS
     if (yuitag_findmy_is_time_synced()) {
         yuitag_findmy_persist_time();
     }
@@ -905,7 +999,6 @@ void yuitag_device_process_events(YuiTagDevice *dev)
         yuitag_device_abort_bind(dev);
     }
 
-#ifndef IS_SPARKS
     if (dev->pendingFindmyChange) {
         dev->pendingFindmyChange = false;
         dev->pendingParamSave = true;
@@ -920,7 +1013,6 @@ void yuitag_device_process_events(YuiTagDevice *dev)
         }
         platform_ble_update_advertising(dev, true);
     }
-#endif
 
     // 9. param save
     if (dev->pendingParamSave) {
