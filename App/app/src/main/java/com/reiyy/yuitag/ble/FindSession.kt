@@ -54,7 +54,9 @@ class FindSession(
 
     // await 写入的挂起等待器（同一通道同一时刻仅允许一个挂起）
     private var pendingCmdAwait: CompletableDeferred<Boolean>? = null
+    private var pendingCmdWriteAwait: CompletableDeferred<Int>? = null
     private var pendingParamAwait: CompletableDeferred<Boolean>? = null
+    private var pendingParamWriteAwait: CompletableDeferred<Int>? = null
     // PARAM 通道的数据型响应（如 FindMy 状态查询：[0x63][...]），按首字节匹配
     private var pendingParamDataAwait: Pair<Byte, CompletableDeferred<ByteArray>>? = null
     // 读特征值等待器（串行队列保证同时仅一个读）
@@ -83,8 +85,12 @@ class FindSession(
     private fun completePendingAwaits() {
         pendingCmdAwait?.let { if (it.isActive) it.complete(false) }
         pendingCmdAwait = null
+        pendingCmdWriteAwait?.let { if (it.isActive) it.complete(BluetoothGatt.GATT_FAILURE) }
+        pendingCmdWriteAwait = null
         pendingParamAwait?.let { if (it.isActive) it.complete(false) }
         pendingParamAwait = null
+        pendingParamWriteAwait?.let { if (it.isActive) it.complete(BluetoothGatt.GATT_FAILURE) }
+        pendingParamWriteAwait = null
         pendingParamDataAwait?.second?.let { if (it.isActive) it.complete(ByteArray(0)) }
         pendingParamDataAwait = null
         readAwait?.let { if (it.isActive) it.complete(null) }
@@ -203,6 +209,24 @@ class FindSession(
         }
     }
 
+    /** CMD / PARAM 特征值写入回调路由（由 gatt 回调转发，用于确认底层 ATT 事务完成以释放 mDeviceBusy） */
+    fun handleCharacteristicWrite(ch: BluetoothGattCharacteristic, status: Int) {
+        when (ch.uuid) {
+            cmdChar?.uuid -> {
+                pendingCmdWriteAwait?.let { d ->
+                    pendingCmdWriteAwait = null
+                    if (d.isActive) d.complete(status)
+                }
+            }
+            paramChar?.uuid -> {
+                pendingParamWriteAwait?.let { d ->
+                    pendingParamWriteAwait = null
+                    if (d.isActive) d.complete(status)
+                }
+            }
+        }
+    }
+
     /** 读特征值响应路由（由 gatt 回调转发） */
     fun handleRead(value: ByteArray?, status: Int) {
         val d = readAwait
@@ -219,25 +243,34 @@ class FindSession(
 
     private suspend fun writeCmdAwaitLocked(data: ByteArray, timeoutMs: Long): Boolean {
         val ch = cmdChar ?: return false
-        if (pendingCmdAwait != null) return false
+        if (pendingCmdAwait != null || pendingCmdWriteAwait != null) return false
         // 写入前暂停心跳，避免心跳响应提前触发挂起的 await（假成功）
         val scope = heartbeatScope
         stopHeartbeat()
-        val deferred = CompletableDeferred<Boolean>()
-        pendingCmdAwait = deferred
+        val notifyDeferred = CompletableDeferred<Boolean>()
+        val writeDeferred = CompletableDeferred<Int>()
+        pendingCmdAwait = notifyDeferred
+        pendingCmdWriteAwait = writeDeferred
         return try {
             ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
             ch.value = data
             if (!gatt.writeCharacteristic(ch)) {
                 pendingCmdAwait = null
+                pendingCmdWriteAwait = null
                 return false
             }
-            withTimeout(timeoutMs) { deferred.await() }
+            withTimeout(timeoutMs) {
+                val writeStatus = writeDeferred.await()
+                val notifyOk = notifyDeferred.await()
+                writeStatus == BluetoothGatt.GATT_SUCCESS && notifyOk
+            }
         } catch (e: CancellationException) {
             pendingCmdAwait = null
+            pendingCmdWriteAwait = null
             throw e
         } catch (_: Exception) {
             pendingCmdAwait = null
+            pendingCmdWriteAwait = null
             false
         } finally {
             // 写入完成后恢复心跳（若未断线且原本有心跳）
@@ -252,25 +285,34 @@ class FindSession(
 
     private suspend fun writeParamAwaitLocked(data: ByteArray, timeoutMs: Long): Boolean {
         val ch = paramChar ?: return false
-        if (pendingParamAwait != null) return false
+        if (pendingParamAwait != null || pendingParamWriteAwait != null) return false
         // 写入前暂停心跳，避免心跳响应提前触发挂起的 await（假成功）
         val scope = heartbeatScope
         stopHeartbeat()
-        val deferred = CompletableDeferred<Boolean>()
-        pendingParamAwait = deferred
+        val notifyDeferred = CompletableDeferred<Boolean>()
+        val writeDeferred = CompletableDeferred<Int>()
+        pendingParamAwait = notifyDeferred
+        pendingParamWriteAwait = writeDeferred
         return try {
             ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
             ch.value = data
             if (!gatt.writeCharacteristic(ch)) {
                 pendingParamAwait = null
+                pendingParamWriteAwait = null
                 return false
             }
-            withTimeout(timeoutMs) { deferred.await() }
+            withTimeout(timeoutMs) {
+                val writeStatus = writeDeferred.await()
+                val notifyOk = notifyDeferred.await()
+                writeStatus == BluetoothGatt.GATT_SUCCESS && notifyOk
+            }
         } catch (e: CancellationException) {
             pendingParamAwait = null
+            pendingParamWriteAwait = null
             throw e
         } catch (_: Exception) {
             pendingParamAwait = null
+            pendingParamWriteAwait = null
             false
         } finally {
             // 写入完成后恢复心跳（若未断线且原本有心跳）
@@ -401,11 +443,15 @@ class FindSession(
         val ch = cmdChar ?: return@withLock null
         val key = aesKey ?: return@withLock null
         val deferred = CompletableDeferred<ByteArray>()
+        val writeDeferred = CompletableDeferred<Int>()
         pendingParamDataAwait = YuiTagProtocol.CMD_FINDMY_STATUS.toByte() to deferred
+        pendingCmdWriteAwait = writeDeferred
         try {
             ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
             ch.value = CryptoUtils.buildFindMyStatusFrame(key)
             if (!gatt.writeCharacteristic(ch)) return@withLock null
+            val writeStatus = writeDeferred.await()
+            if (writeStatus != BluetoothGatt.GATT_SUCCESS) return@withLock null
             val resp = withTimeout(8000L) { deferred.await() }
             if (resp.isEmpty()) null else CryptoUtils.parseFindMyStatusResponse(resp)
         } catch (e: CancellationException) {
@@ -414,6 +460,7 @@ class FindSession(
             null
         } finally {
             pendingParamDataAwait = null
+            pendingCmdWriteAwait = null
         }
     }
 
@@ -450,33 +497,38 @@ class FindSession(
         }
 
         FileLog.i(TAG, "开始同步固定密钥池: 共 $total 个密钥")
+        try { gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) } catch (_: Exception) {}
 
-        // 1. 发送 START 帧
-        val startFrame = CryptoUtils.buildKeysSyncStartFrame(total, key)
-        if (!writeParamAwait(startFrame, timeoutMs = 5000L)) {
-            FileLog.w(TAG, "FixedKeys sync START 失败")
-            return false
-        }
-
-        // 2. 发送各个 DATA 帧
-        for ((idx, k) in keys.withIndex()) {
-            onProgress?.invoke(idx + 1, total)
-            val dataFrame = CryptoUtils.buildKeysSyncDataFrame(idx, k.publicKeyX, key)
-            if (!writeParamAwait(dataFrame, timeoutMs = 5000L)) {
-                FileLog.w(TAG, "FixedKeys sync DATA 失败: 序号 $idx")
+        try {
+            // 1. 发送 START 帧
+            val startFrame = CryptoUtils.buildKeysSyncStartFrame(total, key)
+            if (!writeParamAwait(startFrame, timeoutMs = 5000L)) {
+                FileLog.w(TAG, "FixedKeys sync START 失败")
                 return false
             }
-        }
 
-        // 3. 发送 FINISH 帧
-        val finishFrame = CryptoUtils.buildKeysSyncFinishFrame(total, key)
-        if (!writeParamAwait(finishFrame, timeoutMs = 8000L)) {
-            FileLog.w(TAG, "FixedKeys sync FINISH 失败")
-            return false
-        }
+            // 2. 发送各个 DATA 帧
+            for ((idx, k) in keys.withIndex()) {
+                onProgress?.invoke(idx + 1, total)
+                val dataFrame = CryptoUtils.buildKeysSyncDataFrame(idx, k.publicKeyX, key)
+                if (!writeParamAwait(dataFrame, timeoutMs = 5000L)) {
+                    FileLog.w(TAG, "FixedKeys sync DATA 失败: 序号 $idx")
+                    return false
+                }
+            }
 
-        FileLog.i(TAG, "固定密钥池同步成功: 共 $total 个密钥")
-        return true
+            // 3. 发送 FINISH 帧
+            val finishFrame = CryptoUtils.buildKeysSyncFinishFrame(total, key)
+            if (!writeParamAwait(finishFrame, timeoutMs = 8000L)) {
+                FileLog.w(TAG, "FixedKeys sync FINISH 失败")
+                return false
+            }
+
+            FileLog.i(TAG, "固定密钥池同步成功: 共 $total 个密钥")
+            return true
+        } finally {
+            try { gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED) } catch (_: Exception) {}
+        }
     }
 
     // --- 断开与资源清理 ---

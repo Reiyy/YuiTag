@@ -13,6 +13,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -34,7 +35,7 @@ class BleGattClient {
     companion object {
         private const val TAG = "YuiTagGATT"
         private const val TIMEOUT_MS = 8000L
-        private const val BIND_TIMEOUT_MS = 35000L
+        private const val BIND_TIMEOUT_MS = 60000L
     }
 
     /**
@@ -147,6 +148,7 @@ class BleGattClient {
                 val paramCccdEvt = OneShot<Int>()
                 val cmdNotifyEvt = OneShot<ByteArray>(timeoutMs = 6000L)
                 val paramNotifyEvt = OneShot<ByteArray>(timeoutMs = 6000L)
+                val paramWriteEvt = OneShot<Int>(timeoutMs = 6000L)
                 val readEvt = OneShot<Triple<UUID, ByteArray, Int>>()
 
                 val callback = object : BluetoothGattCallback() {
@@ -229,7 +231,10 @@ class BleGattClient {
                     override fun onCharacteristicWrite(
                         g: BluetoothGatt, ch: BluetoothGattCharacteristic, status: Int
                     ) {
-                        if (ch.uuid == bindUuid) pubkeyWriteEvt.signal(status)
+                        when (ch.uuid) {
+                            bindUuid -> pubkeyWriteEvt.signal(status)
+                            paramUuid -> paramWriteEvt.signal(status)
+                        }
                     }
 
                     override fun onCharacteristicChanged(
@@ -423,73 +428,78 @@ class BleGattClient {
                     if (isSparks) {
                         report("正在生成FindMy密钥...")
                         FileLog.i(TAG, ">>> Step 10 (Sparks): 批量同步固定密钥池 >>>")
-                        val fixedKeys = CryptoUtils.generateFixedFindMyKeys(aesKey!!, count = YuiTagProtocol.FINDMY_DEFAULT_KEYS)
+                        try {
+                            gatt!!.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+                        } catch (_: Exception) {}
 
-                        val paramC = paramChar ?: run { finishBind(findMyOk = false, isSparks = true); return@launch }
-                        gatt!!.setCharacteristicNotification(paramC, true)
-                        val paramCccd = paramC.getDescriptor(YuiTagProtocol.CCCD_UUID)
-                            ?: paramC.descriptors.firstOrNull { it.uuid.toString().contains("2902", true) }
-                        if (paramCccd != null) {
-                            paramCccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                            gatt!!.writeDescriptor(paramCccd)
-                            paramCccdEvt.await()
-                        }
+                        try {
+                            val fixedKeys = CryptoUtils.generateFixedFindMyKeys(aesKey!!, count = YuiTagProtocol.FINDMY_DEFAULT_KEYS)
 
-                        // 1. 发送 START 帧
-                        report("正在开始同步密钥...")
-                        val startFrame = CryptoUtils.buildKeysSyncStartFrame(fixedKeys.size, aesKey!!)
-                        paramC.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                        paramC.value = startFrame
-                        if (gatt!!.writeCharacteristic(paramC) == false) {
-                            FileLog.w("GATT", "Sparks KeysSync START 写入失败")
-                            finishBind(findMyOk = false, isSparks = true); return@launch
-                        }
-                        val startResp = paramNotifyEvt.await()
-                        if (startResp == null || YuiTagProtocol.extractStatus(startResp) != YuiTagProtocol.STATUS_SUCCESS) {
-                            FileLog.w("GATT", "Sparks KeysSync START 未确认: status=${startResp?.let { YuiTagProtocol.extractStatus(it) }}")
-                            finishBind(findMyOk = false, isSparks = true); return@launch
-                        }
-
-                        // 2. 发送各个 DATA 帧
-                        var dataOk = true
-                        for ((idx, k) in fixedKeys.withIndex()) {
-                            report("正在同步密钥 (${idx + 1}/${fixedKeys.size})...")
-                            val dataFrame = CryptoUtils.buildKeysSyncDataFrame(idx, k.publicKeyX, aesKey!!)
-                            paramC.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                            paramC.value = dataFrame
-                            if (gatt!!.writeCharacteristic(paramC) == false) {
-                                FileLog.w("GATT", "Sparks KeysSync DATA $idx 写入失败")
-                                dataOk = false; break
+                            val paramC = paramChar ?: run { finishBind(findMyOk = false, isSparks = true); return@launch }
+                            gatt!!.setCharacteristicNotification(paramC, true)
+                            val paramCccd = paramC.getDescriptor(YuiTagProtocol.CCCD_UUID)
+                                ?: paramC.descriptors.firstOrNull { it.uuid.toString().contains("2902", true) }
+                            if (paramCccd != null) {
+                                paramCccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                                gatt!!.writeDescriptor(paramCccd)
+                                paramCccdEvt.await()
                             }
-                            val dataResp = paramNotifyEvt.await()
-                            if (dataResp == null || YuiTagProtocol.extractStatus(dataResp) != YuiTagProtocol.STATUS_SUCCESS) {
-                                FileLog.w("GATT", "Sparks KeysSync DATA $idx 未确认: status=${dataResp?.let { YuiTagProtocol.extractStatus(it) }}")
-                                dataOk = false; break
+
+                            // 辅助发送函数：同时挂起等待底层 ATT 写入完成（释放 mDeviceBusy）与固件应用层 Notify 确认
+                            suspend fun sendParamAwaitNotify(frame: ByteArray): Boolean {
+                                paramC.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                                paramC.value = frame
+                                val writeJob = async { paramWriteEvt.await() }
+                                val notifyJob = async { paramNotifyEvt.await() }
+                                if (gatt!!.writeCharacteristic(paramC) == false) {
+                                    writeJob.cancel()
+                                    notifyJob.cancel()
+                                    return false
+                                }
+                                val writeStatus = writeJob.await()
+                                val notifyData = notifyJob.await()
+                                return writeStatus == BluetoothGatt.GATT_SUCCESS &&
+                                        notifyData != null &&
+                                        YuiTagProtocol.extractStatus(notifyData) == YuiTagProtocol.STATUS_SUCCESS
                             }
-                        }
-                        if (!dataOk) {
-                            finishBind(findMyOk = false, isSparks = true); return@launch
-                        }
 
-                        // 3. 发送 FINISH 帧
-                        report("正在校验并持久化密钥...")
-                        val finishFrame = CryptoUtils.buildKeysSyncFinishFrame(fixedKeys.size, aesKey!!)
-                        paramC.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                        paramC.value = finishFrame
-                        if (gatt!!.writeCharacteristic(paramC) == false) {
-                            FileLog.w("GATT", "Sparks KeysSync FINISH 写入失败")
-                            finishBind(findMyOk = false, isSparks = true); return@launch
-                        }
-                        val finishResp = paramNotifyEvt.await()
-                        if (finishResp == null || YuiTagProtocol.extractStatus(finishResp) != YuiTagProtocol.STATUS_SUCCESS) {
-                            FileLog.w("GATT", "Sparks KeysSync FINISH 未确认: status=${finishResp?.let { YuiTagProtocol.extractStatus(it) }}")
-                            finishBind(findMyOk = false, isSparks = true); return@launch
-                        }
+                            // 1. 发送 START 帧
+                            report("正在开始同步密钥...")
+                            val startFrame = CryptoUtils.buildKeysSyncStartFrame(fixedKeys.size, aesKey!!)
+                            if (!sendParamAwaitNotify(startFrame)) {
+                                FileLog.w("GATT", "Sparks KeysSync START 失败")
+                                finishBind(findMyOk = false, isSparks = true); return@launch
+                            }
 
-                        report("FindMy启动成功")
-                        FileLog.i(TAG, "══════ Sparks 固定密钥同步成功 (${fixedKeys.size} keys)! ══════")
-                        finishBind(findMyOk = true, isSparks = true, fixedKeys = fixedKeys)
-                        return@launch
+                            // 2. 发送各个 DATA 帧
+                            var dataOk = true
+                            for ((idx, k) in fixedKeys.withIndex()) {
+                                report("正在同步密钥 (${idx + 1}/${fixedKeys.size})...")
+                                val dataFrame = CryptoUtils.buildKeysSyncDataFrame(idx, k.publicKeyX, aesKey!!)
+                                if (!sendParamAwaitNotify(dataFrame)) {
+                                    FileLog.w("GATT", "Sparks KeysSync DATA $idx 失败")
+                                    dataOk = false; break
+                                }
+                            }
+                            if (!dataOk) {
+                                finishBind(findMyOk = false, isSparks = true); return@launch
+                            }
+
+                            // 3. 发送 FINISH 帧
+                            report("正在校验并持久化密钥...")
+                            val finishFrame = CryptoUtils.buildKeysSyncFinishFrame(fixedKeys.size, aesKey!!)
+                            if (!sendParamAwaitNotify(finishFrame)) {
+                                FileLog.w("GATT", "Sparks KeysSync FINISH 失败")
+                                finishBind(findMyOk = false, isSparks = true); return@launch
+                            }
+
+                            report("FindMy启动成功")
+                            FileLog.i(TAG, "══════ Sparks 固定密钥同步成功 (${fixedKeys.size} keys)! ══════")
+                            finishBind(findMyOk = true, isSparks = true, fixedKeys = fixedKeys)
+                            return@launch
+                        } finally {
+                            try { gatt!!.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED) } catch (_: Exception) {}
+                        }
                     }
                     report("正在配置FindMy...")
                     report("设备校时...")
@@ -677,6 +687,12 @@ class BleGattClient {
                                 paramUuid -> paramCccdDone = true
                             }
                             tryCreateSession(g)
+                        }
+
+                        override fun onCharacteristicWrite(
+                            g: BluetoothGatt, ch: BluetoothGattCharacteristic, status: Int
+                        ) {
+                            createdSession?.handleCharacteristicWrite(ch, status)
                         }
 
                         override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic, value: ByteArray) {
