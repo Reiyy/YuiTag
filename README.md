@@ -9,10 +9,11 @@
 通过**YuiTag App**在连接设备后可以发送响铃指令通过蜂鸣器声音寻找Tag。  
 同时还兼容 **FindMy** 网络，并实现了基于时间的无限密钥派生，能够在室内寻物的基础上提供一定的全球定位能力。  
 配套**YuiTag App**支持个性化配置，包括查找页面主题，Tag图标，蓝牙广播间隔，FindMy密钥轮换时间等配置。  
+针对有限固定密钥组的方式还利用App支持随时写入全新的一组密钥而无需重新烧录固件。  
   
-YuiTag有两个版本 Sparks火花 / Starlight星光  
-Sparks为纯室内寻物版本，不支持FindMy网络  
-Starlight在具有Sparks全部功能的基础上支持FindMy网络  
+YuiTag有两个版本 Sparks火花 / Starlight星光   
+Sparks支持**有限**固定密钥组的FindMy网络  
+Starlight支持**无限**动态密钥的FindMy网络  
 
 ## 兼容性
 
@@ -53,7 +54,8 @@ Starlight在具有Sparks全部功能的基础上支持FindMy网络
 
 本项目的主要设计目的是以室内寻物为主，因我和我家人经常找不到东西，故设计了此Tag，用于和家中各种物品放在一起，通过蓝牙信号强度大致判断区域范围，再使用蜂鸣器响铃功能精确定位。  
 FindMy功能并非是本Tag的主要支持功能，  
-初版基于BG22芯片开发，FindMy功能是看到芯片Flash还剩不少才加上，由于之前就用过[lovelyelfpop/macless-haystack](https://gitee.com/lovelyelfpop/macless-haystack)项目的DIY FindMy Tag，但固定的一组密钥长期使用之后定位就不怎么刷新了，由于我的Tag本身为了接收响铃指令已经是可连接设计，也已经有了App，故直接用了基于时间的方法来实现无限密钥派生。
+初版基于BG22芯片开发，FindMy功能是看到芯片Flash还剩不少才加上，之前一直用[lovelyelfpop/macless-haystack](https://gitee.com/lovelyelfpop/macless-haystack)项目的DIY FindMy Tag，但固定的一组密钥用一段时间后定位刷新会变少，由于我的Tag本身为了接收响铃指令已经是可连接设计，也已经有了App，故直接用了基于时间的方法来实现无限密钥派生。  
+针对资源紧张的芯片(如nRF52810)，这些芯片受限于RAM或FLASH无法做到自身进行密钥派生只能使用预生成的固定密钥组，但得益于可连接设计，YuiTag支持通过App随时更换一组新的密钥，当发现定位更新变少时可以直接生成一组新的密钥传输给Tag，而无需重新烧录固件。  
 
 FindMy种子复用绑定流程中协商出的通信密钥，随后App向Tag发送当前时间戳进行校时，Tag将自身定时器时间与校时时间锚定，之后双方即可无需沟通各自通过相同的种子密钥和当前时间派生出一致的广播密钥。
 
