@@ -7,26 +7,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
-data class AmapAddress(
-    val formattedAddress: String,
-    val province: String,
-    val city: String,
-    val district: String,
-    val township: String,
-    val neighborhood: String,
-    val building: String,
-    val street: String,
-    val number: String
-) {
-    fun display(): String {
-        return formattedAddress.ifEmpty {
-            listOf(province, city, district, township, street)
-                .filter { it.isNotEmpty() }.joinToString("")
-        }
-    }
-}
-
-class AmapGeocodeUtil(private val context: Context) {
+class AmapGeocodeUtil(private val context: Context) : GeocodeProvider {
     companion object {
         private const val TAG = "AmapGeocode"
         private const val PREF_NAME = "yuitag_settings"
@@ -44,7 +25,7 @@ class AmapGeocodeUtil(private val context: Context) {
     fun saveAmapKey(key: String) { prefs.edit().putString(KEY_AMAP, key).apply() }
 
     /** 快速从内存或磁盘缓存获取已解析的地址，不发起网络请求 */
-    fun getCached(lat: Double, lon: Double): AmapAddress? {
+    override fun getCached(lat: Double, lon: Double): AmapAddress? {
         val cacheKey = "${"%.3f".format(lat)}_${"%.3f".format(lon)}"
         cache[cacheKey]?.let { return it }
         readDiskCache(cacheKey)?.let { addr ->
@@ -54,7 +35,7 @@ class AmapGeocodeUtil(private val context: Context) {
         return null
     }
 
-    suspend fun lookup(lat: Double, lon: Double): AmapAddress? {
+    override suspend fun lookup(lat: Double, lon: Double): AmapAddress? {
         val cached = getCached(lat, lon)
         if (cached != null) return cached
 

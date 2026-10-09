@@ -9,6 +9,8 @@ import com.reiyy.yuitag.data.local.AddressComponents
 import com.reiyy.yuitag.data.local.AddressLevel
 import com.reiyy.yuitag.data.local.LocationEntity
 import com.reiyy.yuitag.util.AmapGeocodeUtil
+import com.reiyy.yuitag.util.GeocodeProvider
+import com.reiyy.yuitag.util.TiandituGeocodeUtil
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
@@ -22,9 +24,13 @@ import java.nio.ByteOrder
 
 class FindMyQueryService(private val context: Context) {
     companion object {
+        const val GEOCODE_PROVIDER_AMAP = "amap"
+        const val GEOCODE_PROVIDER_TIANDITU = "tianditu"
+
         private const val TAG = "FindMyQuery"
         private const val EXTENSION_DAYS = 7
         private const val PREF_NAME = "yuitag_settings"
+        private const val KEY_GEOCODE_PROVIDER = "geocode_provider"
         private const val KEY_ENDPOINT_URL = "endpoint_url"
         private const val KEY_ENDPOINT_URL_FALLBACK = "endpoint_url_fallback"
         private const val KEY_ENDPOINT_USER = "endpoint_user"
@@ -45,6 +51,7 @@ class FindMyQueryService(private val context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
     private val amapGeocode = AmapGeocodeUtil(context)
+    private val tiandituGeocode = TiandituGeocodeUtil(context)
 
     fun getEndpointUrl(): String = prefs.getString(KEY_ENDPOINT_URL, "") ?: ""
     fun getEndpointUrlFallback(): String = prefs.getString(KEY_ENDPOINT_URL_FALLBACK, "") ?: ""
@@ -69,8 +76,17 @@ class FindMyQueryService(private val context: Context) {
     fun getChunkRetryDelaySec(): Int = prefs.getInt(KEY_CHUNK_RETRY_DELAY, 1)
     fun saveChunkRetryDelaySec(value: Int) { prefs.edit().putInt(KEY_CHUNK_RETRY_DELAY, value).apply() }
 
+    fun getGeocodeProvider(): String =
+        prefs.getString(KEY_GEOCODE_PROVIDER, GEOCODE_PROVIDER_AMAP) ?: GEOCODE_PROVIDER_AMAP
+    fun saveGeocodeProvider(provider: String) {
+        prefs.edit().putString(KEY_GEOCODE_PROVIDER, provider).apply()
+    }
+
     fun getAmapKey(): String = amapGeocode.getAmapKey()
     fun saveAmapKey(key: String) { amapGeocode.saveAmapKey(key) }
+
+    fun getTiandituGeocodeKey(): String = tiandituGeocode.getDirectGeocodeKey()
+    fun saveTiandituGeocodeKey(key: String) { tiandituGeocode.saveGeocodeKey(key) }
 
     // --- 天地图瓦片（可选，用户自填 key；空则回退 OSM） ---
     fun getTiandituKey(): String = prefs.getString(KEY_TIANDITU_KEY, "") ?: ""
@@ -273,22 +289,17 @@ class FindMyQueryService(private val context: Context) {
         val latestItem = decryptedItems.maxByOrNull { it.decrypted.timestamp }
         val latestAddressMap = mutableMapOf<Pair<Double, Double>, Pair<String?, AddressComponents?>>()
 
+        val currentGeocode: GeocodeProvider = if (getGeocodeProvider() == GEOCODE_PROVIDER_TIANDITU) {
+            tiandituGeocode
+        } else {
+            amapGeocode
+        }
+
         if (latestItem != null) {
             try {
-                val addr = amapGeocode.lookup(latestItem.decrypted.latitude, latestItem.decrypted.longitude)
+                val addr = currentGeocode.lookup(latestItem.decrypted.latitude, latestItem.decrypted.longitude)
                 val display = addr?.display()
-                val detail = addr?.let {
-                    AddressComponents(
-                        province = it.province.takeIf { s -> s.isNotEmpty() },
-                        city = it.city.takeIf { s -> s.isNotEmpty() },
-                        district = it.district.takeIf { s -> s.isNotEmpty() },
-                        township = it.township.takeIf { s -> s.isNotEmpty() },
-                        neighborhood = it.neighborhood.takeIf { s -> s.isNotEmpty() },
-                        building = it.building.takeIf { s -> s.isNotEmpty() },
-                        street = it.street.takeIf { s -> s.isNotEmpty() },
-                        number = it.number.takeIf { s -> s.isNotEmpty() }
-                    )
-                }
+                val detail = addr?.toAddressComponents()
                 latestAddressMap[latestItem.decrypted.latitude to latestItem.decrypted.longitude] = (display to detail)
             } catch (_: Exception) {}
         }
@@ -299,21 +310,15 @@ class FindMyQueryService(private val context: Context) {
             var (address, addressDetail) = latestAddressMap[coord] ?: (null to null)
 
             // 其余历史点仅从本地缓存查询，不发起网络请求阻塞主流程
+            // 优先查询当前选中的服务商缓存，未命中时回退尝试另一家服务商缓存
             if (address == null && addressDetail == null) {
                 try {
-                    val cachedAddr = amapGeocode.getCached(dec.latitude, dec.longitude)
+                    val cachedAddr = currentGeocode.getCached(dec.latitude, dec.longitude)
+                        ?: if (currentGeocode === tiandituGeocode) amapGeocode.getCached(dec.latitude, dec.longitude)
+                           else tiandituGeocode.getCached(dec.latitude, dec.longitude)
                     if (cachedAddr != null) {
                         address = cachedAddr.display()
-                        addressDetail = AddressComponents(
-                            province = cachedAddr.province.takeIf { s -> s.isNotEmpty() },
-                            city = cachedAddr.city.takeIf { s -> s.isNotEmpty() },
-                            district = cachedAddr.district.takeIf { s -> s.isNotEmpty() },
-                            township = cachedAddr.township.takeIf { s -> s.isNotEmpty() },
-                            neighborhood = cachedAddr.neighborhood.takeIf { s -> s.isNotEmpty() },
-                            building = cachedAddr.building.takeIf { s -> s.isNotEmpty() },
-                            street = cachedAddr.street.takeIf { s -> s.isNotEmpty() },
-                            number = cachedAddr.number.takeIf { s -> s.isNotEmpty() }
-                        )
+                        addressDetail = cachedAddr.toAddressComponents()
                     }
                 } catch (_: Exception) {}
             }

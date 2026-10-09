@@ -39,7 +39,9 @@ fun SettingsMapScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val service = remember { FindMyQueryService(context) }
 
+    var geocodeProvider by remember { mutableStateOf(service.getGeocodeProvider()) }
     var amapKey by remember { mutableStateOf(service.getAmapKey()) }
+    var tiandituGeocodeKey by remember { mutableStateOf(service.getTiandituGeocodeKey()) }
     var tiandituKey by remember { mutableStateOf(service.getTiandituKey()) }
     var tiandituStyle by remember { mutableStateOf(service.getTiandituStyle()) }
 
@@ -67,14 +69,43 @@ fun SettingsMapScreen(onBack: () -> Unit) {
         ) {
             SettingsHeader("逆地理编码")
             SettingsCard {
-                SettingsTextPreference(
+                SettingsRadioPreference(
                     icon = Icons.Outlined.LocationOn,
-                    title = "高德地图 Web 服务 Key",
-                    subtitle = "用于地址反查",
-                    value = amapKey,
-                    placeholder = "在 console.amap.com 申请",
-                    onSave = { amapKey = it; service.saveAmapKey(it) }
+                    title = "服务商",
+                    options = listOf(
+                        FindMyQueryService.GEOCODE_PROVIDER_AMAP to "高德地图",
+                        FindMyQueryService.GEOCODE_PROVIDER_TIANDITU to "天地图"
+                    ),
+                    selected = geocodeProvider,
+                    onSelect = {
+                        geocodeProvider = it
+                        service.saveGeocodeProvider(it)
+                    }
                 )
+                HorizontalDivider()
+                if (geocodeProvider == FindMyQueryService.GEOCODE_PROVIDER_AMAP) {
+                    SettingsTextPreference(
+                        icon = Icons.Outlined.LocationOn,
+                        title = "高德地图 Web 服务 Key",
+                        subtitle = "用于地址反查",
+                        value = amapKey,
+                        placeholder = "在 console.amap.com 申请",
+                        onSave = { amapKey = it; service.saveAmapKey(it) }
+                    )
+                } else {
+                    SettingsTextPreference(
+                        icon = Icons.Outlined.LocationOn,
+                        title = "天地图 Key",
+                        subtitle = if (tiandituGeocodeKey.isBlank() && tiandituKey.isNotBlank()) {
+                            "已自动复用底图天地图 Key；可在此填写独立 Key 覆盖"
+                        } else {
+                            "用于地址反查；留空自动复用底图 Key"
+                        },
+                        value = tiandituGeocodeKey,
+                        placeholder = if (tiandituKey.isNotBlank()) "留空自动复用底图 Key" else "在 console.tianditu.gov.cn 申请",
+                        onSave = { tiandituGeocodeKey = it; service.saveTiandituGeocodeKey(it) }
+                    )
+                }
             }
 
             SettingsHeader("地图底图")

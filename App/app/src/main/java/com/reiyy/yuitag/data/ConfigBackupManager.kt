@@ -59,6 +59,8 @@ object ConfigBackupManager {
         val query_chunk_retry_count: Int = 1,
         val query_chunk_retry_delay: Int = 1,
         val amap_web_api_key: String = "",
+        val geocode_provider: String = "amap",
+        val tianditu_geocode_key: String = "",
         val tianditu_key: String = "",
         val tianditu_style: String = "",
         val health_normal_days: Int = 7,
@@ -172,7 +174,9 @@ object ConfigBackupManager {
                 writer.name("query_batch_key_limit").value(prefs.getInt("query_batch_key_limit", 100))
                 writer.name("query_chunk_retry_count").value(prefs.getInt("query_chunk_retry_count", 1))
                 writer.name("query_chunk_retry_delay").value(prefs.getInt("query_chunk_retry_delay", 1))
+                writer.name("geocode_provider").value(prefs.getString("geocode_provider", "amap") ?: "amap")
                 writer.name("amap_web_api_key").value(prefs.getString("amap_web_api_key", "") ?: "")
+                writer.name("tianditu_geocode_key").value(prefs.getString("tianditu_geocode_key", "") ?: "")
                 writer.name("tianditu_key").value(prefs.getString("tianditu_key", "") ?: "")
                 writer.name("tianditu_style").value(prefs.getString("tianditu_style", "") ?: "")
                 writer.name("health_normal_days").value(prefs.getInt("health_normal_days", 7))
@@ -289,7 +293,9 @@ object ConfigBackupManager {
                 .putInt("query_batch_key_limit", s.query_batch_key_limit.coerceAtLeast(1))
                 .putInt("query_chunk_retry_count", s.query_chunk_retry_count.coerceAtLeast(0))
                 .putInt("query_chunk_retry_delay", s.query_chunk_retry_delay.coerceAtLeast(0))
+                .putString("geocode_provider", s.geocode_provider.ifBlank { "amap" })
                 .putString("amap_web_api_key", s.amap_web_api_key)
+                .putString("tianditu_geocode_key", s.tianditu_geocode_key)
                 .putString("tianditu_key", s.tianditu_key)
                 .putString("tianditu_style", s.tianditu_style)
                 .putInt("health_normal_days", s.health_normal_days.coerceAtLeast(1))
