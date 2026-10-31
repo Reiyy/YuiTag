@@ -18,6 +18,9 @@ import androidx.compose.material.icons.filled.BatteryFull
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.MoreVert
+import android.widget.Toast
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import com.reiyy.yuitag.data.BackfillProgress
@@ -69,6 +72,15 @@ fun LocationHistoryScreen(
     val context = LocalContext.current
     val service = remember(context) { FindMyQueryService(context) }
     var effectiveDebugMode by remember { mutableStateOf(isDebugMode ?: service.isDebugModeEnabled()) }
+    var isDeduplicateEnabled by rememberSaveable { mutableStateOf(false) }
+
+    val displayLocations = remember(locations, isDeduplicateEnabled) {
+        if (isDeduplicateEnabled) {
+            deduplicateLocations(locations)
+        } else {
+            locations
+        }
+    }
 
     LifecycleResumeEffect(isDebugMode) {
         effectiveDebugMode = isDebugMode ?: service.isDebugModeEnabled()
@@ -115,6 +127,24 @@ fun LocationHistoryScreen(
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
+                    IconButton(
+                        onClick = {
+                            isDeduplicateEnabled = !isDeduplicateEnabled
+                            val hiddenCount = locations.size - deduplicateLocations(locations).size
+                            if (isDeduplicateEnabled) {
+                                val msg = if (hiddenCount > 0) "已启用位置去重（隐藏 $hiddenCount 条重复记录）" else "已启用位置去重"
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "已显示全部位置记录", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FilterList,
+                            contentDescription = if (isDeduplicateEnabled) "关闭去重" else "开启去重",
+                            tint = if (isDeduplicateEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     IconButton(onClick = { menuExpanded = true }) {
                         Icon(Icons.Default.MoreVert, contentDescription = "更多")
                     }
@@ -148,7 +178,7 @@ fun LocationHistoryScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            if (locations.isEmpty() && !isRefreshing) {
+            if (displayLocations.isEmpty() && !isRefreshing) {
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -162,7 +192,7 @@ fun LocationHistoryScreen(
                     )
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        "暂无位置记录",
+                        if (locations.isNotEmpty() && isDeduplicateEnabled) "去重后暂无位置" else "暂无位置记录",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -179,7 +209,7 @@ fun LocationHistoryScreen(
                         .padding(horizontal = 16.dp)
                 ) {
                     item { Spacer(Modifier.height(8.dp)) }
-                    items(locations, key = { it.id }) { location ->
+                    items(displayLocations, key = { it.id }) { location ->
                         LocationHistoryCard(location, isDebugMode = effectiveDebugMode)
                         Spacer(Modifier.height(8.dp))
                     }
@@ -340,4 +370,23 @@ private fun KeyInfoText(periodIndex: Long?, hashedKey: String?) {
             )
         }
     }
+}
+
+/**
+ * 连续相同位置去重：按经纬度保留3位小数判定网格，
+ * 连续停留在同一网格内的多个记录只保留最早到达的一条，恢复为降序呈现。
+ */
+private fun deduplicateLocations(locations: List<LocationEntity>): List<LocationEntity> {
+    if (locations.size <= 1) return locations
+    val asc = locations.sortedBy { it.timestamp }
+    val result = mutableListOf<LocationEntity>()
+    var lastGrid: String? = null
+    for (loc in asc) {
+        val grid = "${"%.3f".format(loc.latitude)}_${"%.3f".format(loc.longitude)}"
+        if (grid != lastGrid) {
+            result.add(loc)
+            lastGrid = grid
+        }
+    }
+    return result.sortedByDescending { it.timestamp }
 }
