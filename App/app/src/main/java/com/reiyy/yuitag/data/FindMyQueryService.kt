@@ -82,6 +82,12 @@ class FindMyQueryService(private val context: Context) {
         prefs.edit().putString(KEY_GEOCODE_PROVIDER, provider).apply()
     }
 
+    fun getCurrentGeocodeProvider(): GeocodeProvider =
+        if (getGeocodeProvider() == GEOCODE_PROVIDER_TIANDITU) tiandituGeocode else amapGeocode
+
+    fun getFallbackGeocodeProvider(): GeocodeProvider =
+        if (getGeocodeProvider() == GEOCODE_PROVIDER_TIANDITU) amapGeocode else tiandituGeocode
+
     fun getAmapKey(): String = amapGeocode.getAmapKey()
     fun saveAmapKey(key: String) { amapGeocode.saveAmapKey(key) }
 

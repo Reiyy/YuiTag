@@ -4,8 +4,10 @@ import android.app.Application
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.reiyy.yuitag.data.BackfillProgress
 import com.reiyy.yuitag.data.DeviceRepository
 import com.reiyy.yuitag.data.FindMyQueryService
+import com.reiyy.yuitag.data.GeocodeBackfillHelper
 import com.reiyy.yuitag.data.LocationQueryHelper
 import com.reiyy.yuitag.data.NoEndpointException
 import com.reiyy.yuitag.data.local.LocationEntity
@@ -13,11 +15,12 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.IOException
 
 /**
- * 位置历史页 ViewModel — 封装 FindMy 位置查询与设备名加载，移除 NavGraph 中的内联逻辑。
+ * 位置历史页 ViewModel — 封装 FindMy 位置查询、设备名加载与缺失地址后台补全。
  */
 class LocationHistoryViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -25,6 +28,7 @@ class LocationHistoryViewModel(application: Application) : AndroidViewModel(appl
         private set
 
     private val queryHelper by lazy { LocationQueryHelper(repository, FindMyQueryService(getApplication())) }
+    private val backfillHelper by lazy { GeocodeBackfillHelper(repository, FindMyQueryService(getApplication())) }
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
@@ -32,20 +36,55 @@ class LocationHistoryViewModel(application: Application) : AndroidViewModel(appl
     private val _deviceName = MutableStateFlow("YuiTag")
     val deviceName: StateFlow<String> = _deviceName.asStateFlow()
 
+    val backfillProgress: StateFlow<BackfillProgress> by lazy { backfillHelper.progress }
+
     fun initRepository(repo: DeviceRepository) {
         repository = repo
     }
 
+    private var initializedUid: String? = null
+
     fun initialize(uid: String) {
+        if (initializedUid == uid) return
+        initializedUid = uid
+
         viewModelScope.launch {
             repository.boundDevicesCache.collect { cache ->
                 _deviceName.value =
                     cache[uid]?.customName?.ifEmpty { "YuiTag_${uid.take(4)}" } ?: "YuiTag_${uid.take(4)}"
             }
         }
+        // 打开页面时自动检测存量未解析数据，静默启动后台限流补全
+        viewModelScope.launch {
+            delay(500)
+            if (repository.getUnresolvedLocationCount(uid) > 0) {
+                backfillHelper.backfill(uid, forceNetwork = true)
+            }
+        }
     }
 
     fun locationsFor(uid: String): Flow<List<LocationEntity>> = repository.getLocationHistoryFlow(uid)
+
+    /** 用户手动触发补全缺失地址 */
+    fun triggerBackfill(uid: String) {
+        if (backfillProgress.value is BackfillProgress.Running) {
+            Toast.makeText(getApplication(), "地址解析正在进行中...", Toast.LENGTH_SHORT).show()
+            return
+        }
+        viewModelScope.launch {
+            val count = repository.getUnresolvedLocationCount(uid)
+            if (count == 0) {
+                Toast.makeText(getApplication(), "所有位置均已解析地址", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            backfillHelper.resetFailedGrids()
+            Toast.makeText(getApplication(), "正在解析 $count 条未完成位置...", Toast.LENGTH_SHORT).show()
+            val resolved = backfillHelper.backfill(uid, forceNetwork = true)
+            if (resolved > 0) {
+                Toast.makeText(getApplication(), "已补全 $resolved 条记录的地址", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     fun refresh(uid: String) {
         if (_isRefreshing.value) return
@@ -64,6 +103,8 @@ class LocationHistoryViewModel(application: Application) : AndroidViewModel(appl
                 val results = queryHelper.queryAndStore(uid)
                 if (results.isNotEmpty()) {
                     Toast.makeText(getApplication(), "找到 ${results.size} 条位置记录", Toast.LENGTH_SHORT).show()
+                    // 增量位置入库后，自动启动后台限流补全
+                    backfillHelper.backfill(uid, forceNetwork = true)
                 } else {
                     Toast.makeText(getApplication(), "未找到位置信息", Toast.LENGTH_SHORT).show()
                 }

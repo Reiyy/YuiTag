@@ -17,6 +17,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BatteryFull
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import com.reiyy.yuitag.data.BackfillProgress
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -58,7 +62,9 @@ fun LocationHistoryScreen(
     isRefreshing: Boolean,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
-    isDebugMode: Boolean? = null
+    isDebugMode: Boolean? = null,
+    backfillProgress: BackfillProgress = BackfillProgress.Idle,
+    onTriggerBackfill: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val service = remember(context) { FindMyQueryService(context) }
@@ -70,11 +76,63 @@ fun LocationHistoryScreen(
     }
     Scaffold(
         topBar = {
+            var menuExpanded by remember { mutableStateOf(false) }
             TopAppBar(
-                title = { Text(deviceName) },
+                title = {
+                    Column {
+                        Text(deviceName, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        when (val p = backfillProgress) {
+                            is BackfillProgress.Running -> {
+                                Text(
+                                    text = "正在解析地址 ${p.current}/${p.total}…",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            is BackfillProgress.Error -> {
+                                Text(
+                                    text = "地址解析未完成",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                            else -> {}
+                        }
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    if (backfillProgress is BackfillProgress.Running) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "更多")
+                    }
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false }
+                    ) {
+                        val hasUnresolved = locations.any { it.address.isNullOrBlank() }
+                        DropdownMenuItem(
+                            text = {
+                                Text(if (hasUnresolved) "补全缺失地址" else "重新检查地址")
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                onTriggerBackfill()
+                            },
+                            enabled = backfillProgress !is BackfillProgress.Running
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

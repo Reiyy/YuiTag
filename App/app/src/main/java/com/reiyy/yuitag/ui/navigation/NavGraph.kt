@@ -316,14 +316,17 @@ fun YuiTagNavGraph(
             val locations by vm.locationsFor(uid).collectAsState(initial = emptyList())
             val isRefreshing by vm.isRefreshing.collectAsState()
             val deviceName by vm.deviceName.collectAsState()
+            val backfillProgress by vm.backfillProgress.collectAsState()
 
             LocationHistoryScreen(
                 uid = uid,
                 deviceName = deviceName,
                 locations = locations,
                 isRefreshing = isRefreshing,
+                backfillProgress = backfillProgress,
                 onBack = { navController.popBackStack() },
-                onRefresh = { vm.refresh(uid) }
+                onRefresh = { vm.refresh(uid) },
+                onTriggerBackfill = { vm.triggerBackfill(uid) }
             )
         }
 

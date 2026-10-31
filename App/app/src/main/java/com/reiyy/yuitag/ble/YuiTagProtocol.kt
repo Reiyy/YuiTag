@@ -5,19 +5,16 @@ import android.bluetooth.le.ScanRecord
 import android.os.ParcelUuid
 import java.util.UUID
 
-/**
- * YuiTag BLE 协议常量定义、广播与特征值解析工具。
- *
- * 基础 UUID: 722Axxxx-8a74-432f-9055-7ed8a5584a11
- */
-object YuiTagProtocol {
-    // --- 核心业务服务 (0xAA00) ---
-    const val CORE_SERVICE_UUID      = "722AAA00-8a74-432f-9055-7ed8a5584a11"
-    const val BIND_CHAR_UUID         = "722AAA42-8a74-432f-9055-7ed8a5584a11"   // 安全绑定通道（ECDH 协商 / 密钥下发）
-    const val CMD_CHAR_UUID          = "722AAA43-8a74-432f-9055-7ed8a5584a11"   // 指令与状态通道（响铃 / 心跳 / 解绑等）
-    const val PARAM_CHAR_UUID        = "722AAA46-8a74-432f-9055-7ed8a5584a11"   // 设备参数配置通道（广播间隔 / 名称 / FindMy 开关等）
+// 基础UUID 722Axxxx-8a74-432f-9055-7ed8a5584a11
 
-    // --- Silicon Labs OTA 服务 ---
+object YuiTagProtocol {
+    // 核心 (0xAA00)
+    const val CORE_SERVICE_UUID      = "722AAA00-8a74-432f-9055-7ed8a5584a11"
+    const val BIND_CHAR_UUID         = "722AAA42-8a74-432f-9055-7ed8a5584a11"   // 绑定通道
+    const val CMD_CHAR_UUID          = "722AAA43-8a74-432f-9055-7ed8a5584a11"   // 指令与状态通道
+    const val PARAM_CHAR_UUID        = "722AAA46-8a74-432f-9055-7ed8a5584a11"   // 设备参数配置通道
+
+    // Silicon Labs OTA 服务
     const val OTA_SERVICE_UUID       = "1D14D6EE-FD63-4FA1-BFA4-8F47B42119F0"
     const val OTA_CONTROL_CHAR_UUID  = "F7BF3564-FB6D-4E53-88A4-5E37E0326063"
     const val OTA_DATA_CHAR_UUID     = "984227F3-34FC-4045-A5D0-2C581F81A153"
@@ -26,16 +23,16 @@ object YuiTagProtocol {
     const val OTA_OPCODE_BEGIN       = 0x00.toByte()   // 写入 OTA Control 启动 DFU 接收
     const val OTA_OPCODE_END         = 0x03.toByte()   // 写入 OTA Control 完成 DFU 并校验安装
 
-    // --- NCS (nRF Connect SDK) OTA — MCUmgr SMP over BLE ---
+    // NCS OTA — MCUmgr SMP over BLE
     const val SMP_SERVICE_UUID       = "8D53DC1D-1DB7-4CD3-868B-8A527460AA84"
     const val SMP_CHAR_UUID          = "DA2E7828-FBCE-4E01-AE9E-261174997C48"
 
-    // --- 标准 BLE 规范服务与特征 (16-bit) ---
+    // 标准BLE规范服务与特征
     val GAS_SERVICE_UUID: ParcelUuid = ParcelUuid(UUID.fromString("00001800-0000-1000-8000-00805F9B34FB"))
     val DIS_SERVICE_UUID: ParcelUuid = ParcelUuid(UUID.fromString("0000180A-0000-1000-8000-00805F9B34FB"))
     val BATTERY_SERVICE_UUID: ParcelUuid = ParcelUuid(UUID.fromString("0000180F-0000-1000-8000-00805F9B34FB"))
 
-    // 设备信息服务（DIS）特征值
+    // 设备信息服务特征值
     val DEVICE_NAME_UUID: UUID   = UUID.fromString("00002A00-0000-1000-8000-00805F9B34FB")
     val MODEL_UUID: UUID         = UUID.fromString("00002A24-0000-1000-8000-00805F9B34FB")
     val SERIAL_UUID: UUID        = UUID.fromString("00002A25-0000-1000-8000-00805F9B34FB")

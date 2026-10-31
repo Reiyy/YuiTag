@@ -578,7 +578,37 @@ class DeviceRepository(
             if (loc.periodIndex != null || loc.hashedKey != null) {
                 locationDao.backfillKeyInfo(loc.deviceUid, loc.timestamp, loc.periodIndex, loc.hashedKey)
             }
+            if (!loc.address.isNullOrBlank()) {
+                locationDao.backfillAddress(loc.deviceUid, loc.timestamp, loc.address, loc.addressDetail)
+            }
         }
+    }
+
+    /** 获取指定设备地址未解析的位置记录 */
+    suspend fun getUnresolvedLocations(uid: String): List<com.reiyy.yuitag.data.local.LocationEntity> =
+        locationDao.getUnresolvedLocations(uid)
+
+    /** 获取指定设备未解析地址的记录数 */
+    suspend fun getUnresolvedLocationCount(uid: String): Int =
+        locationDao.getUnresolvedCount(uid)
+
+    /** 更新单条位置记录的地址信息 */
+    suspend fun updateLocationAddress(
+        id: Long,
+        address: String,
+        detail: com.reiyy.yuitag.data.local.AddressComponents?
+    ) {
+        locationDao.updateAddress(id, address, detail)
+    }
+
+    /** 批量更新指定位置记录的地址信息 */
+    suspend fun updateLocationAddressByIds(
+        ids: List<Long>,
+        address: String,
+        detail: com.reiyy.yuitag.data.local.AddressComponents?
+    ) {
+        if (ids.isEmpty()) return
+        locationDao.updateAddressByIds(ids, address, detail)
     }
 
     /** 根据 UID 从 Room 加载设备实体 */
