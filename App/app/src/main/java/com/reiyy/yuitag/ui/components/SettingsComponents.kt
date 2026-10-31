@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -179,14 +180,23 @@ fun SettingsTextPreference(
         subtitle = subtitle,
         onClick = { showDialog = true },
         trailing = {
+            val displayText = if (isPassword && value.isNotBlank()) {
+                "••••••••"
+            } else {
+                value.ifBlank { placeholder }
+            }
             Text(
-                text = value.ifBlank { placeholder },
+                text = displayText,
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (value.isBlank())
                     MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 else
                     MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(end = 4.dp)
+                modifier = Modifier
+                    .padding(end = 4.dp)
+                    .widthIn(max = 120.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     )
@@ -227,7 +237,9 @@ fun <T> SettingsRadioPreference(
                 text = currentLabel,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(end = 4.dp),
+                modifier = Modifier
+                    .padding(end = 4.dp)
+                    .widthIn(max = 120.dp),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
