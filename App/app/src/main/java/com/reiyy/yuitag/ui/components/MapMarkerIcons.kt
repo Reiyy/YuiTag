@@ -147,7 +147,10 @@ private fun buildCircleBitmap(sizePx: Int, color: Color, density: Density): Bitm
     val canvas = androidx.compose.ui.graphics.Canvas(bitmap.asImageBitmap())
     val drawScope = CanvasDrawScope()
     drawScope.draw(density, LayoutDirection.Ltr, canvas, Size(sizePx.toFloat(), sizePx.toFloat())) {
-        drawCircle(color = color, radius = sizePx / 2f)
+        val r = sizePx / 2f
+        drawCircle(color = Color(0x55000000), radius = r)
+        drawCircle(color = Color.White, radius = r * 0.88f)
+        drawCircle(color = color, radius = r * 0.64f)
     }
     return bitmap
 }
@@ -158,15 +161,16 @@ private fun buildSelectedCircleBitmap(sizePx: Int, color: Color, density: Densit
     val drawScope = CanvasDrawScope()
     drawScope.draw(density, LayoutDirection.Ltr, canvas, Size(sizePx.toFloat(), sizePx.toFloat())) {
         val outerRadius = sizePx / 2f
-        val ringWidth = sizePx * 0.14f
-        val blackWidth = sizePx * 0.18f
-        // 黑色外环（稍宽，形成细黑边）
-        drawCircle(color = Color.Black, radius = outerRadius, style = Stroke(width = blackWidth))
-        // 白色环（叠在黑环上，露出两侧黑边）
-        drawCircle(color = Color.White, radius = outerRadius, style = Stroke(width = ringWidth))
-        // 内部彩色圆
-        val innerRadius = outerRadius - blackWidth - sizePx * 0.04f
-        drawCircle(color = color, radius = innerRadius.coerceAtLeast(1f))
+        // 外发光晕环
+        drawCircle(color = color.copy(alpha = 0.28f), radius = outerRadius)
+        // 深色高反差外边
+        drawCircle(color = Color(0xAA0F172A), radius = outerRadius * 0.82f)
+        // 纯白中环
+        drawCircle(color = Color.White, radius = outerRadius * 0.74f)
+        // 彩色内圆
+        drawCircle(color = color, radius = outerRadius * 0.52f)
+        // 中心白点靶心
+        drawCircle(color = Color.White, radius = outerRadius * 0.20f)
     }
     return bitmap
 }
@@ -177,25 +181,31 @@ private fun buildStartEndMarkerBitmap(sizePx: Int, color: Color, text: String): 
     val center = sizePx / 2f
     val radius = sizePx / 2f
 
+    // 底部深色阴影外环，确保在浅色/卫星地图上边缘锐利
+    val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        this.color = 0x660F172A
+        style = Paint.Style.FILL
+    }
+    canvas.drawCircle(center, center, radius, shadowPaint)
+
+    // 白色外护边
+    val whiteOuterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        this.color = android.graphics.Color.WHITE
+        style = Paint.Style.FILL
+    }
+    canvas.drawCircle(center, center, radius * 0.92f, whiteOuterPaint)
+
     // 圆形底色
     val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         this.color = color.toArgb()
         style = Paint.Style.FILL
     }
-    canvas.drawCircle(center, center, radius, bgPaint)
-
-    // 白色圆环
-    val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        this.color = android.graphics.Color.WHITE
-        style = Paint.Style.STROKE
-        strokeWidth = sizePx * 0.12f
-    }
-    canvas.drawCircle(center, center, radius * 0.85f, ringPaint)
+    canvas.drawCircle(center, center, radius * 0.78f, bgPaint)
 
     // 居中文字
     val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
-        textSize = sizePx * 0.5f
+        textSize = sizePx * 0.44f
         this.color = android.graphics.Color.WHITE
         isFakeBoldText = true
     }

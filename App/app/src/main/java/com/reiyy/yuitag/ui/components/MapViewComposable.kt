@@ -30,7 +30,6 @@ import org.osmdroid.events.ScrollEvent
 import org.osmdroid.events.ZoomEvent
 import org.osmdroid.tileprovider.MapTileProviderBasic
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
-import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.util.TileSystem
 import org.osmdroid.views.MapView
@@ -39,6 +38,7 @@ import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.TilesOverlay
 import org.osmdroid.views.overlay.compass.CompassOverlay
 import java.io.File
+import kotlin.math.ln
 
 // 居中时目标点落在屏幕高度比例（避开顶栏与底部卡片）
 private const val CENTER_OFFSET_FRACTION = 0.30f
@@ -143,6 +143,8 @@ fun OsmMapView(
     onMapTouched: (() -> Unit)? = null,
     onMarkerClick: ((String) -> Unit)? = null,
     zoomToTargetLevel: Double? = null,
+    preserveZoomOnCenter: Boolean = false,
+    centerOffsetFraction: Float = CENTER_OFFSET_FRACTION,
     recenterToken: Int = 0,
     modifiers: Modifier = Modifier,
     markers: List<MapMarkerData> = emptyList(),
@@ -154,13 +156,33 @@ fun OsmMapView(
     polylines: List<MapPolylineData> = emptyList(),
     fitBoundsPoints: List<Pair<Double, Double>> = emptyList(),
     fitBoundsToken: Int = 0,
+    fitBoundsTopPaddingDp: Float = 64f,
+    fitBoundsBottomPaddingDp: Float = 64f,
+    fitBoundsHorizontalPaddingDp: Float = 48f,
+    fitBoundsAnimated: Boolean = true,
     isDark: Boolean = LocalDarkTheme.current
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
+    val currentOnMapTouched by rememberUpdatedState(onMapTouched)
 
     // 最后一次地图交互时间（指南针空闲休眠依据），先于 mapView 定义供内部回调引用
     val lastMapInteractionMs = remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    // 地图空白处触摸监听（置于底层，仅当上层 Marker 与 TrajectoryOverlay 均未消费点击时触发）
+    val touchOverlay = remember {
+        MapEventsOverlay(object : MapEventsReceiver {
+            override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean {
+                lastMapInteractionMs.longValue = System.currentTimeMillis()
+                currentOnMapTouched?.invoke()
+                return false
+            }
+            override fun longPressHelper(p: GeoPoint?): Boolean {
+                lastMapInteractionMs.longValue = System.currentTimeMillis()
+                return false
+            }
+        })
+    }
 
     val mapView = remember {
         val cacheDir = File(context.cacheDir, "osmdroid")
@@ -191,19 +213,6 @@ fun OsmMapView(
             controller.setCenter(GeoPoint(initialLatitude, initialLongitude))
             minZoomLevel = APP_MIN_ZOOM
             maxZoomLevel = APP_MAX_ZOOM
-
-            // 地图触摸监听
-            val touchOverlay = MapEventsOverlay(object : MapEventsReceiver {
-                override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean {
-                    lastMapInteractionMs.longValue = System.currentTimeMillis()
-                    onMapTouched?.invoke()
-                    return false
-                }
-                override fun longPressHelper(p: GeoPoint?): Boolean {
-                    lastMapInteractionMs.longValue = System.currentTimeMillis()
-                    return false
-                }
-            })
             overlays.add(touchOverlay)
         }
     }
@@ -271,6 +280,7 @@ fun OsmMapView(
     val markerCache = remember { mutableMapOf<String, Marker>() }
 
     // 天地图瓦片源（可选）：填了 key 用天地图，否则回退 OSM
+    // 重要：注记层固定插入在 overlays[0]（最底层），确保轨迹折线与标记点始终绘制在地名/路网文字之上
     var annotationOverlay by remember { mutableStateOf<TilesOverlay?>(null) }
     LaunchedEffect(tiandituKey, tiandituStyle) {
         annotationOverlay?.let { mapView.overlays.remove(it) }
@@ -293,7 +303,7 @@ fun OsmMapView(
                 loadingBackgroundColor = android.graphics.Color.TRANSPARENT
                 loadingLineColor = android.graphics.Color.TRANSPARENT
             }
-            mapView.overlays.add(labelOverlay)
+            mapView.overlays.add(0, labelOverlay)
             annotationOverlay = labelOverlay
             mapView.maxZoomLevel = APP_MAX_ZOOM
         }
@@ -312,21 +322,27 @@ fun OsmMapView(
         if (targetCenter != null && animateToTarget) {
             val (lat, lng) = targetCenter
             if (lat != 0.0 && lng != 0.0) {
-                val targetZoom = zoomToTargetLevel ?: 15.0
-                val zoom = mapView.zoomLevelDouble.coerceAtLeast(targetZoom).coerceAtMost(APP_MAX_ZOOM)
+                val zoom = when {
+                    preserveZoomOnCenter && zoomToTargetLevel == null ->
+                        mapView.zoomLevelDouble.coerceIn(APP_MIN_ZOOM, APP_MAX_ZOOM)
+                    else -> {
+                        val targetZoom = zoomToTargetLevel ?: 15.0
+                        mapView.zoomLevelDouble.coerceAtLeast(targetZoom).coerceAtMost(APP_MAX_ZOOM)
+                    }
+                }
                 mapView.post {
                     if (!mapView.isLaidOut) return@post
                     val h = mapView.height
-                    val offY = (h * CENTER_OFFSET_FRACTION).toInt()
+                    val offY = (h * centerOffsetFraction).toInt()
                     val ts = MapView.getTileSystem()
                     val mapSize = TileSystem.MapSize(zoom)
                     val x01 = ts.getX01FromLongitude(lng)
                     val y01 = ts.getY01FromLatitude(lat)
                     // 地图中心放在点下方 (h/2 - offY) 像素处 → 点落在屏幕 offY 高度，避开底部卡片
-                    val centerY01 = y01 + (h / 2.0 - offY) / mapSize
+                    val centerY01 = (y01 + (h / 2.0 - offY) / mapSize).coerceIn(0.0, 1.0)
                     val centerLat = ts.getLatitudeFromY01(centerY01)
-                    val centerLng = ts.getLongitudeFromX01(x01)
-                    mapView.controller.animateTo(GeoPoint(centerLat, centerLng), zoom, 800L)
+                    val centerLng = ts.getLongitudeFromX01(x01.coerceIn(0.0, 1.0))
+                    mapView.controller.animateTo(GeoPoint(centerLat, centerLng), zoom, 500L)
                 }
             }
         }
@@ -406,33 +422,66 @@ fun OsmMapView(
         }
     }
 
-    // 轨迹折线（含方向箭头）：按 id 增量更新，避免全量重建。
-    // 插到 overlays 头部，确保始终绘制在 marker 下方。
+    // 轨迹折线（含双层护边、方向箭头、动态抽稀节点与点击命中）：按 id 增量更新。
+    // 插入在天地图注记层 annotationOverlay 之后、Marker 之前，确保轨迹压在路名之上且在起终图标之下。
     val polylineCache = remember { mutableMapOf<String, TrajectoryOverlay>() }
-    DisposableEffect(polylines) {
+    DisposableEffect(polylines, isDark, tiandituStyle, annotationOverlay) {
         val retained = mutableSetOf<String>()
+        val isDarkMapSurface = isDark || tiandituStyle == TiandituTileSource.STYLE_SATELLITE
+
+        fun applyPolylineData(overlay: TrajectoryOverlay, data: MapPolylineData) {
+            overlay.points = data.points.map { GeoPoint(it.first, it.second) }
+            overlay.nodes = data.nodes
+            overlay.displayMode = data.displayMode
+            overlay.color = data.color
+            overlay.useGradient = data.useGradient
+            overlay.startColor = data.startColor
+            overlay.midColor = data.midColor
+            overlay.endColor = data.endColor
+            overlay.isDarkMap = isDarkMapSurface
+            overlay.lineWidthPx = with(density) { data.widthDp.dp.toPx() }
+            overlay.casingWidthPx = with(density) { data.casingWidthDp.dp.toPx() }
+            overlay.maxArcOffsetPx = with(density) { data.maxArcOffsetDp.dp.toPx() }
+            overlay.showArrows = data.showArrows
+            overlay.arrowIntervalPx = with(density) { data.arrowIntervalDp.dp.toPx() }
+            overlay.arrowSizePx = with(density) { data.arrowSizeDp.dp.toPx() }
+            overlay.showIntermediateNodes = data.showIntermediateNodes
+            overlay.minNodeSpacingPx = with(density) { data.minNodeSpacingDp.dp.toPx() }
+            overlay.nodeRadiusPx = with(density) { data.nodeRadiusDp.dp.toPx() }
+            overlay.hitRadiusPx = with(density) { 28.dp.toPx() }
+            overlay.selectedNodeId = data.selectedNodeId
+            overlay.onNodeClick = data.onNodeClick?.let { cb ->
+                { nodeId ->
+                    lastMapInteractionMs.longValue = System.currentTimeMillis()
+                    cb(nodeId)
+                }
+            }
+        }
+
         polylines.forEach { data ->
             retained.add(data.id)
-            val geoPoints = data.points.map { GeoPoint(it.first, it.second) }
             val existing = polylineCache[data.id]
+            val labelIdx = annotationOverlay?.let { mapView.overlays.indexOf(it) } ?: -1
+            val touchIdx = mapView.overlays.indexOf(touchOverlay)
+            val minTargetIdx = (maxOf(labelIdx, touchIdx) + 1).coerceAtLeast(0)
+
             if (existing == null) {
-                val overlay = TrajectoryOverlay().apply {
-                    points = geoPoints
-                    color = data.color
-                    lineWidthPx = with(density) { data.widthDp.dp.toPx() }
-                    showArrows = data.showArrows
-                    arrowIntervalPx = with(density) { data.arrowIntervalDp.dp.toPx() }
-                    arrowSizePx = with(density) { data.arrowSizeDp.dp.toPx() }
-                }
-                mapView.overlays.add(0, overlay)
+                val overlay = TrajectoryOverlay()
+                applyPolylineData(overlay, data)
+                mapView.overlays.add(minTargetIdx.coerceAtMost(mapView.overlays.size), overlay)
                 polylineCache[data.id] = overlay
             } else {
-                existing.points = geoPoints
-                existing.color = data.color
-                existing.showArrows = data.showArrows
-                existing.lineWidthPx = with(density) { data.widthDp.dp.toPx() }
-                existing.arrowIntervalPx = with(density) { data.arrowIntervalDp.dp.toPx() }
-                existing.arrowSizePx = with(density) { data.arrowSizeDp.dp.toPx() }
+                applyPolylineData(existing, data)
+                // 确保 TrajectoryOverlay 始终位于 annotationOverlay 与 touchOverlay 之上
+                val polyIdx = mapView.overlays.indexOf(existing)
+                if (polyIdx in 0 until minTargetIdx) {
+                    mapView.overlays.remove(existing)
+                    val targetIdx = (maxOf(
+                        annotationOverlay?.let { mapView.overlays.indexOf(it) } ?: -1,
+                        mapView.overlays.indexOf(touchOverlay)
+                    ) + 1).coerceIn(0, mapView.overlays.size)
+                    mapView.overlays.add(targetIdx, existing)
+                }
             }
         }
         polylineCache.keys.toList().forEach { id ->
@@ -445,24 +494,70 @@ fun OsmMapView(
         onDispose {}
     }
 
-    // 自动缩放至覆盖全部轨迹点（单点回退为中心 + 固定缩放）
+    // 自动缩放至覆盖全部轨迹点（考虑顶部筛选栏与底部时间轴面板的非对称安全边距，并支持平滑过渡）
+    var hasInitialFitDone by remember { mutableStateOf(false) }
     LaunchedEffect(fitBoundsPoints, fitBoundsToken) {
         if (fitBoundsPoints.isEmpty()) return@LaunchedEffect
         val pts = fitBoundsPoints.map { GeoPoint(it.first, it.second) }
         mapView.post {
-            if (!mapView.isLaidOut) return@post
-            if (pts.size == 1) {
-                mapView.controller.setCenter(pts[0])
-                mapView.controller.setZoom(
-                    mapView.zoomLevelDouble.coerceAtLeast(16.0).coerceAtMost(APP_MAX_ZOOM)
-                )
+            if (!mapView.isLaidOut || mapView.width <= 0 || mapView.height <= 0) return@post
+            val padTopPx = with(density) { fitBoundsTopPaddingDp.dp.toPx() }
+            val padBottomPx = with(density) { fitBoundsBottomPaddingDp.dp.toPx() }
+            val padHorizPx = with(density) { fitBoundsHorizontalPaddingDp.dp.toPx() }
+            val ts = MapView.getTileSystem()
+
+            var minLat = 90.0
+            var maxLat = -90.0
+            var minLng = 180.0
+            var maxLng = -180.0
+            for (p in pts) {
+                if (p.latitude < minLat) minLat = p.latitude
+                if (p.latitude > maxLat) maxLat = p.latitude
+                if (p.longitude < minLng) minLng = p.longitude
+                if (p.longitude > maxLng) maxLng = p.longitude
+            }
+
+            val isSingleOrTightCluster = pts.size == 1 ||
+                (maxLat - minLat < 1e-4 && maxLng - minLng < 1e-4)
+
+            val targetZoom: Double
+            val midX01: Double
+            val midY01: Double
+
+            if (isSingleOrTightCluster) {
+                targetZoom = if (pts.size == 1) 16.5 else 17.5
+                midX01 = ts.getX01FromLongitude((minLng + maxLng) / 2.0)
+                midY01 = ts.getY01FromLatitude((minLat + maxLat) / 2.0)
             } else {
-                val box = BoundingBox.fromGeoPoints(pts)
-                val padding = with(density) { 64.dp.toPx().toInt() }
-                mapView.zoomToBoundingBox(box, false, padding)
-                if (mapView.zoomLevelDouble > APP_MAX_ZOOM) {
-                    mapView.controller.setZoom(APP_MAX_ZOOM)
-                }
+                val availW = (mapView.width - padHorizPx * 2f).coerceAtLeast(100f).toDouble()
+                val availH = (mapView.height - padTopPx - padBottomPx).coerceAtLeast(100f).toDouble()
+                val xMin = ts.getX01FromLongitude(minLng)
+                val xMax = ts.getX01FromLongitude(maxLng)
+                val yMin = ts.getY01FromLatitude(maxLat)
+                val yMax = ts.getY01FromLatitude(minLat)
+                val spanX = (xMax - xMin).coerceAtLeast(1e-7)
+                val spanY = (yMax - yMin).coerceAtLeast(1e-7)
+
+                val reqMapSize = minOf(availW / spanX, availH / spanY)
+                val tileSize = TileSystem.getTileSize().toDouble().coerceAtLeast(256.0)
+                targetZoom = (ln(reqMapSize / tileSize) / ln(2.0)).coerceIn(APP_MIN_ZOOM, 18.0)
+                midX01 = (xMin + xMax) / 2.0
+                midY01 = (yMin + yMax) / 2.0
+            }
+
+            val mapSize = TileSystem.MapSize(targetZoom)
+            // 补偿上下非对称内边距，使轨迹外包框中心落在可视安全区域正中央
+            val shiftY01 = (padBottomPx - padTopPx) / 2.0 / mapSize
+            val centerLat = ts.getLatitudeFromY01((midY01 + shiftY01).coerceIn(0.0, 1.0))
+            val centerLng = ts.getLongitudeFromX01(midX01.coerceIn(0.0, 1.0))
+            val centerGeo = GeoPoint(centerLat, centerLng)
+
+            if (hasInitialFitDone && fitBoundsAnimated) {
+                mapView.controller.animateTo(centerGeo, targetZoom, 550L)
+            } else {
+                mapView.controller.setZoom(targetZoom)
+                mapView.controller.setCenter(centerGeo)
+                hasInitialFitDone = true
             }
             mapView.invalidate()
         }
@@ -492,8 +587,21 @@ data class MapPolylineData(
     val id: String,
     val points: List<Pair<Double, Double>>,
     val color: Int,
-    val widthDp: Float = 4f,
+    val widthDp: Float = 5.2f,
+    val casingWidthDp: Float = 8.4f,
+    val maxArcOffsetDp: Float = 36f,
     val showArrows: Boolean = false,
-    val arrowIntervalDp: Float = 64f,
-    val arrowSizeDp: Float = 11f
+    val arrowIntervalDp: Float = 68f,
+    val arrowSizeDp: Float = 13f,
+    val useGradient: Boolean = true,
+    val startColor: Int = 0xFF10B981.toInt(),
+    val midColor: Int = 0xFF0EA5E9.toInt(),
+    val endColor: Int = 0xFF2563EB.toInt(),
+    val nodes: List<TrajectoryNode> = emptyList(),
+    val displayMode: TrajectoryDisplayMode = TrajectoryDisplayMode.SMART_ARCS,
+    val showIntermediateNodes: Boolean = true,
+    val minNodeSpacingDp: Float = 24f,
+    val nodeRadiusDp: Float = 4.2f,
+    val selectedNodeId: Long? = null,
+    val onNodeClick: ((Long) -> Unit)? = null
 )
