@@ -182,12 +182,6 @@ bool platform_findmy_adv_update_data(const uint8_t key[28], uint8_t status_byte)
         return false;
     }
 
-    // 轮换时同时更新 Identity 1 随机 MAC 地址
-    bt_addr_le_t addr;
-    addr.type = BT_ADDR_LE_RANDOM;
-    yuitag_findmy_key_to_addr(key, addr.a.val);
-    bt_id_reset(FINDMY_ID, &addr, NULL);
-
     uint8_t raw[31];
     yuitag_findmy_build_adv_data(key, status_byte, raw);
     struct bt_data ad[] = {
@@ -269,7 +263,6 @@ void yuitag_findmy_tick(void)
     if ((now - s_last_rotate_ms) >= (s_period_seconds * 1000UL)) {
         s_last_rotate_ms = now;
         s_current_idx = (s_current_idx + 1) % s_key_count;
-        platform_storage_save_u16(NVM3_KEY_FINDMY_CURRENT_IDX, s_current_idx);
 
         uint8_t nextKey[FINDMY_KEY_LEN];
         if (s_keys_load_key(s_current_idx, nextKey)) {
@@ -283,11 +276,23 @@ void yuitag_findmy_tick(void)
 
 void yuitag_findmy_update_battery(uint8_t battery_percent)
 {
-    uint8_t b_stat = 0;
-    if (battery_percent < 20) {
-        b_stat = 0x01; // Low battery flag
+    uint8_t battery_bits;
+    if (battery_percent > 80) {
+        battery_bits = 0x00;
+    } else if (battery_percent > 50) {
+        battery_bits = 0x40;
+    } else if (battery_percent > 30) {
+        battery_bits = 0x80;
+    } else {
+        battery_bits = 0xC0;
     }
-    s_battery_status = b_stat;
+
+    uint8_t old_battery = s_battery_status & 0xC0;
+    if (old_battery == battery_bits) {
+        return;
+    }
+
+    s_battery_status = battery_bits | (s_battery_status & 0x3F);
     if (s_advertising && s_key_count > 0) {
         uint8_t curKey[FINDMY_KEY_LEN];
         if (s_keys_load_key(s_current_idx, curKey)) {

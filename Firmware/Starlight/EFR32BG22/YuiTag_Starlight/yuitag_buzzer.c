@@ -114,6 +114,9 @@ void buzzer_init(void)
 
     GPIO_PinModeSet(BUZZER_PORT_P, BUZZER_PIN_P, gpioModePushPull, 0);
     GPIO_PinModeSet(BUZZER_PORT_N, BUZZER_PIN_N, gpioModePushPull, 0);
+
+    // 初始化完成后关闭 TIMER0 总线时钟，发声时 (buzzer_on) 动态开启，避免待机漏电
+    CMU->CLKEN0_CLR = CMU_CLKEN0_TIMER0;
 }
 
 void buzzer_on(void)
@@ -183,10 +186,33 @@ void buzzer_set_volume(uint8_t volume_pct)
 
 static void play_current_note(void)
 {
-    if (s_melody_index >= s_melody_count) { return; }
+    while (s_melody_index < s_melody_count && s_melody_notes[s_melody_index].duration_ms == 0) {
+        s_melody_index++;
+    }
+
+    if (s_melody_index >= s_melody_count) {
+        if (s_melody_repeat && s_melody_count > 0) {
+            s_melody_index = 0;
+            while (s_melody_index < s_melody_count && s_melody_notes[s_melody_index].duration_ms == 0) {
+                s_melody_index++;
+            }
+            if (s_melody_index >= s_melody_count) {
+                s_melody_playing = false;
+                buzzer_off();
+                if (s_melody_done_cb) { s_melody_done_cb(true); }
+                return;
+            }
+        } else {
+            s_melody_playing = false;
+            buzzer_off();
+            if (s_melody_done_cb) { s_melody_done_cb(true); }
+            return;
+        }
+    }
+
     const buzzer_note_t *note = &s_melody_notes[s_melody_index];
 
-    if (note->freq == 0 || note->duration_ms == 0) {
+    if (note->freq == 0) {
         buzzer_off();
     } else {
         if (note->freq != s_freq) {
@@ -199,11 +225,9 @@ static void play_current_note(void)
         if (!s_buzzer_on) { buzzer_on(); }
     }
 
-    if (note->duration_ms > 0) {
-        sl_sleeptimer_start_timer_ms(&s_melody_timer_handle,
-                                     note->duration_ms,
-                                     melody_timer_callback, NULL, false, 0);
-    }
+    sl_sleeptimer_start_timer_ms(&s_melody_timer_handle,
+                                 note->duration_ms,
+                                 melody_timer_callback, NULL, false, 0);
 }
 
 static void melody_timer_callback(sl_sleeptimer_timer_handle_t *handle, void *data)
@@ -212,18 +236,7 @@ static void melody_timer_callback(sl_sleeptimer_timer_handle_t *handle, void *da
     if (!s_melody_playing) { return; }
 
     s_melody_index++;
-    if (s_melody_index >= s_melody_count) {
-        if (s_melody_repeat) {
-            s_melody_index = 0;
-            play_current_note();
-        } else {
-            s_melody_playing = false;
-            buzzer_off();
-            if (s_melody_done_cb) { s_melody_done_cb(true); }
-        }
-    } else {
-        play_current_note();
-    }
+    play_current_note();
 }
 
 void buzzer_play_melody(const buzzer_note_t *notes, uint16_t count,

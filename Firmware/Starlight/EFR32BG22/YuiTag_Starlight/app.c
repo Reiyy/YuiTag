@@ -50,11 +50,10 @@ void app_init(void)
     // 初始化板级外设
     platform_init();
 
-    // 连续上电重置检测在调试延时前执行，确保 7s 窗口在通电瞬间即刻记录有效计数
-    s_pending_factory_reset = yuitag_device_power_cycle_check(&g_dev);
-
-    // 开机延时 3s：供 SWD 调试器在进入深度休眠前连接 (仅冷启动执行)
+#if defined(DEBUG) || (defined(YUITAG_LOG_ENABLE) && YUITAG_LOG_ENABLE)
+    // 开机延时 3s：仅在调试/使能日志模式下启用，供 SWD 调试器在进入深度休眠前连接
     sl_sleeptimer_delay_millisecond(3000);
+#endif
 
     // 初始化加密子系统
     yuitag_crypto_init();

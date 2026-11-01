@@ -276,7 +276,8 @@ static void handle_cmd_channel_write(YuiTagDevice *dev,
         s_conn_start_ms = platform_millis();
     }
 
-    if (dev->pendingUnbindClear || dev->pendingAdvRefresh || dev->pendingBindAbort) {
+    if (dev->pendingUnbindClear || dev->pendingAdvRefresh || dev->pendingBindAbort ||
+        dev->pendingBindSave || dev->pendingParamSave || dev->pendingFindmyChange) {
         app_proceed();
     }
 }
@@ -358,9 +359,9 @@ void yuitag_ble_on_event(sl_bt_msg_t *evt, YuiTagDevice *dev)
         platform_get_mac(mac);
         yuitag_device_init(dev, mac);
 
-        // 开机提示音在首次电量采样后播放，避免蜂鸣器瞬态拉低采样电压；
-        // 若连续快速上电触发了出厂复位，则跳过开机提示音，避免覆盖复位提示音
-        if (!app_is_factory_reset_triggered()) {
+        // 连续断电重启检测 (恢复出厂设置)；置于 device_init 之后以确保重置名称包含有效 shortUid
+        bool resetTriggered = yuitag_device_power_cycle_check(dev);
+        if (!resetTriggered) {
             yuitag_beep_startup();
         }
 
@@ -404,6 +405,7 @@ void yuitag_ble_on_event(sl_bt_msg_t *evt, YuiTagDevice *dev)
 
         // 断开后重启常规可连接广播
         yuitag_ble_update_advertising(dev, false);
+        app_proceed();
         break;
     }
 

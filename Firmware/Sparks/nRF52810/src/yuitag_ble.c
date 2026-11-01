@@ -37,6 +37,16 @@ static bool g_conn_param_updated = false;
 static struct k_work_delayable s_conn_param_work;
 static void conn_param_work_handler(struct k_work *work);
 
+static struct k_work_delayable s_adv_refresh_work;
+static void adv_refresh_work_handler(struct k_work *work)
+{
+    (void)work;
+    if (g_dev) {
+        yuitag_ble_update_advertising(g_dev, true);
+        app_proceed();
+    }
+}
+
 // CCCD 客户端通知特性描述符状态监听
 static void ccc_bind_changed(const struct bt_gatt_attr *attr, uint16_t value)
 {
@@ -461,8 +471,8 @@ static void connected(struct bt_conn *conn, uint8_t err)
         k_work_reschedule(&s_conn_param_work, K_MSEC(CONN_PARAM_DELAY_MS));
     }
 
-    g_dev->pendingAdvRefresh = true;
-    app_proceed();
+    // 连接建立后延迟 30ms 重新配置不可连接广播，避开 BT_RX 协议栈清理竞态
+    k_work_reschedule(&s_adv_refresh_work, K_MSEC(30));
 
     platform_log("[CONN] Connected");
 }
@@ -481,9 +491,10 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
     g_cccd_bind = g_cccd_cmd = g_cccd_param = false;
 
     yuitag_device_on_disconnected(g_dev);
-
-    g_dev->pendingAdvRefresh = true;
     app_proceed();
+
+    // 连接断开后延迟 30ms 恢复常态可连接广播，避开 BT_RX 协议栈清理竞态
+    k_work_reschedule(&s_adv_refresh_work, K_MSEC(30));
     platform_log("[CONN] Disconnected (reason 0x%02x)", reason);
 }
 
@@ -542,4 +553,5 @@ void yuitag_ble_init(YuiTagDevice *dev)
 {
     g_dev = dev;
     k_work_init_delayable(&s_conn_param_work, conn_param_work_handler);
+    k_work_init_delayable(&s_adv_refresh_work, adv_refresh_work_handler);
 }

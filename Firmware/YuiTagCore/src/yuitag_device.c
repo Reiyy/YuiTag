@@ -122,9 +122,7 @@ void yuitag_device_init(YuiTagDevice *dev, const uint8_t mac[6])
         platform_storage_save_u16(NVM3_KEY_ADV_INTERVAL, dev->advInterval);
         platform_storage_save_u16(NVM3_KEY_FIND_INTERVAL, dev->findModeInterval);
         platform_storage_save_u16(NVM3_KEY_TX_POWER, (uint16_t)(uint8_t)dev->txPower);
-#ifndef IS_SPARKS
         platform_storage_save_u16(NVM3_KEY_FINDMY_TX_POWER, (uint16_t)(uint8_t)dev->findmyTxPower);
-#endif
         platform_storage_save_bool(NVM3_KEY_IS_BOUND, dev->isBound);
         platform_storage_save_bool(NVM3_KEY_FINDMY_ENABLED, dev->findmyEnabled);
     } else {
@@ -189,11 +187,12 @@ bool yuitag_device_tick(YuiTagDevice *dev)
         if (dev->ringActive) {
             return false;
         }
+        uint8_t oldBatt = dev->batteryLevel;
         dev->batteryLevel = platform_read_battery();
         dev->lastBatteryCheckMs = now;
         platform_log("[BATT] Periodic: %d%%", dev->batteryLevel);
         if (dev->isBound) {
-            return true;
+            return (oldBatt != dev->batteryLevel);
         }
     }
 
@@ -248,17 +247,22 @@ void yuitag_device_on_disconnected(YuiTagDevice *dev)
             dev->advInterval = dev->isBound ? ADV_INTERVAL_NORMAL_MS : ADV_INTERVAL_UNBOUND_MS;
         }
         platform_log("[FIND] Disconnected: restored interval=%dms", dev->advInterval);
+        dev->pendingParamSave = true;
     }
 
+    if (!dev->isBound) {
 #ifndef IS_SPARKS
-    dev->otaAuthorized = false;
-    if (!dev->isBound && yuitag_crypto_ecdh_ready()) {
-        yuitag_crypto_ecdh_cleanup();
-        dev->waitingVerify = false;
-    }
-#else
-    dev->waitingVerify = false;
+        dev->otaAuthorized = false;
+        if (yuitag_crypto_ecdh_ready()) {
+            yuitag_crypto_ecdh_cleanup();
+        }
 #endif
+        if (dev->waitingVerify || yuitag_crypto_has_aes_key()) {
+            yuitag_crypto_clear_aes_key();
+            dev->waitingVerify = false;
+            platform_log("[BIND] Disconnected unverified -> cleared AES key");
+        }
+    }
 
     platform_log("[GATT] Disconnected");
 }
@@ -549,11 +553,9 @@ void yuitag_device_clear_binding(YuiTagDevice *dev)
     platform_storage_save_u16(NVM3_KEY_FIND_INTERVAL, dev->findModeInterval);
     dev->txPower = (int8_t)DEFAULT_BLE_TX_POWER;
     platform_storage_save_u16(NVM3_KEY_TX_POWER, (uint16_t)(uint8_t)dev->txPower);
-#ifndef IS_SPARKS
     dev->findmyTxPower = (int8_t)DEFAULT_FINDMY_TX_POWER;
     platform_storage_save_u16(NVM3_KEY_FINDMY_TX_POWER, (uint16_t)(uint8_t)dev->findmyTxPower);
     platform_findmy_adv_set_tx_power(dev->findmyTxPower);
-#endif
     platform_storage_save_bool(NVM3_KEY_IS_BOUND, false);
     platform_storage_save_bool(NVM3_KEY_FINDMY_ENABLED, false);
 
@@ -602,9 +604,7 @@ void yuitag_device_persist_params(YuiTagDevice *dev)
     platform_storage_save_u16(NVM3_KEY_ADV_INTERVAL, normalInterval);
     platform_storage_save_u16(NVM3_KEY_FIND_INTERVAL, dev->findModeInterval);
     platform_storage_save_u16(NVM3_KEY_TX_POWER, (uint16_t)(uint8_t)dev->txPower);
-#ifndef IS_SPARKS
     platform_storage_save_u16(NVM3_KEY_FINDMY_TX_POWER, (uint16_t)(uint8_t)dev->findmyTxPower);
-#endif
     platform_storage_save_bool(NVM3_KEY_FINDMY_ENABLED, dev->findmyEnabled);
     platform_log("[PERSIST] Device params saved to storage (normalAdv=%dms txPower=%d)", normalInterval, dev->txPower);
 }

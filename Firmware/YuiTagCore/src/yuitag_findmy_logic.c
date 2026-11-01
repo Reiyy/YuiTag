@@ -66,8 +66,6 @@ static void save_time_state(void)
     if (s_time_synced) {
         platform_storage_save_bytes(NVM3_KEY_FINDMY_BASE_TIME,
                                     (uint8_t *)&s_base_unix_time, sizeof(s_base_unix_time));
-        platform_storage_save_bytes(NVM3_KEY_FINDMY_BASE_TICKS,
-                                    (uint8_t *)&s_base_ms, sizeof(s_base_ms));
     }
 }
 

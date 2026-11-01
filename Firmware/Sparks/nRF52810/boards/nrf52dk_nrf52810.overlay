@@ -1,6 +1,6 @@
 /*
  * YuiTag nRF52810 板级设备树 Overlay 配置:
- * 1. PWM0 驱动压电蜂鸣器差分互补输出: P0.02 (OUT0 正向) / P0.03 (OUT1 反向)。
+ * 1. PWM0 驱动压电蜂鸣器差分互补输出: P0.16 (OUT0 正向, BUZZER+) / P0.15 (OUT1 反向, BUZZER-)。
  * 2. SAADC 通道 0 采样内部 VDD 电源轨，用于电池电量预估。
  * 3. 启用 SoC 内部 DC/DC 转换器降低运行功耗。
  * 4. 禁用未使用的 UART0 / I2C0 / SPI0 外设以节省静态电流。
@@ -22,15 +22,15 @@
 &pinctrl {
 	pwm0_default: pwm0_default {
 		group1 {
-			psels = <NRF_PSEL(PWM_OUT0, 0, 2)>,
-				<NRF_PSEL(PWM_OUT1, 0, 3)>;
+			psels = <NRF_PSEL(PWM_OUT0, 0, 16)>,
+				<NRF_PSEL(PWM_OUT1, 0, 15)>;
 		};
 	};
 
 	pwm0_sleep: pwm0_sleep {
 		group1 {
-			psels = <NRF_PSEL(PWM_OUT0, 0, 2)>,
-				<NRF_PSEL(PWM_OUT1, 0, 3)>;
+			psels = <NRF_PSEL(PWM_OUT0, 0, 16)>,
+				<NRF_PSEL(PWM_OUT1, 0, 15)>;
 			low-power-enable;
 		};
 	};

@@ -154,12 +154,37 @@ void buzzer_set_volume(uint8_t volume_pct)
 // 播放当前索引指向的音符
 static void play_current_note(void)
 {
-    if (s_melody_index >= s_melody_count) {
-        return;
+    while (s_melody_index < s_melody_count && s_melody_notes[s_melody_index].duration_ms == 0) {
+        s_melody_index++;
     }
+
+    if (s_melody_index >= s_melody_count) {
+        if (s_melody_repeat && s_melody_count > 0) {
+            s_melody_index = 0;
+            while (s_melody_index < s_melody_count && s_melody_notes[s_melody_index].duration_ms == 0) {
+                s_melody_index++;
+            }
+            if (s_melody_index >= s_melody_count) {
+                s_melody_playing = false;
+                buzzer_off();
+                if (s_melody_done_cb) {
+                    s_melody_done_cb(true);
+                }
+                return;
+            }
+        } else {
+            s_melody_playing = false;
+            buzzer_off();
+            if (s_melody_done_cb) {
+                s_melody_done_cb(true);
+            }
+            return;
+        }
+    }
+
     const buzzer_note_t *note = &s_melody_notes[s_melody_index];
 
-    if (note->freq == 0 || note->duration_ms == 0) {
+    if (note->freq == 0) {
         buzzer_off(); // 休止符
     } else {
         if (note->freq != s_freq) {
@@ -171,9 +196,7 @@ static void play_current_note(void)
         }
     }
 
-    if (note->duration_ms > 0) {
-        k_work_reschedule(&s_melody_work, K_MSEC(note->duration_ms));
-    }
+    k_work_reschedule(&s_melody_work, K_MSEC(note->duration_ms));
 }
 
 // 乐谱播放延时工作队列处理回调
@@ -185,20 +208,7 @@ static void melody_step(struct k_work *work)
     }
 
     s_melody_index++;
-    if (s_melody_index >= s_melody_count) {
-        if (s_melody_repeat) {
-            s_melody_index = 0;
-            play_current_note();
-        } else {
-            s_melody_playing = false;
-            buzzer_off();
-            if (s_melody_done_cb) {
-                s_melody_done_cb(true);
-            }
-        }
-    } else {
-        play_current_note();
-    }
+    play_current_note();
 }
 
 void buzzer_play_melody(const buzzer_note_t *notes, uint16_t count,
