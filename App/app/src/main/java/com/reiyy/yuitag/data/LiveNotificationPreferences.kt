@@ -114,10 +114,10 @@ class LiveNotificationPreferences(private val context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
     /**
-     * 实况通知总开关（默认开启）
+     * 实况通知总开关（默认关闭）
      */
     fun isLiveNotificationEnabled(): Boolean {
-        return prefs.getBoolean(KEY_LIVE_NOTIFICATION_ENABLED, true)
+        return prefs.getBoolean(KEY_LIVE_NOTIFICATION_ENABLED, false)
     }
 
     fun setLiveNotificationEnabled(enabled: Boolean) {

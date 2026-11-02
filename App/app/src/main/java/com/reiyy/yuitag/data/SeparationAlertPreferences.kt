@@ -23,7 +23,7 @@ enum class SeparationAlertLevel(
 
     companion object {
         fun fromKey(key: String): SeparationAlertLevel =
-            entries.find { it.key.equals(key, ignoreCase = true) } ?: FAR
+            entries.find { it.key.equals(key, ignoreCase = true) } ?: NO_SIGNAL
 
         fun levelFromRssi(rssi: Float): Int = when {
             rssi > -50 -> 4
@@ -57,14 +57,14 @@ class SeparationAlertPreferences(context: Context) {
 
         /** 最小确认延时（秒），用于抑制偶发丢包与扫描占空比波动 */
         const val MIN_DELAY_SECONDS = 30
-        const val DEFAULT_DELAY_SECONDS = 30
+        const val DEFAULT_DELAY_SECONDS = 120
     }
 
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
     fun isMasterEnabled(): Boolean =
-        prefs.getBoolean(KEY_MASTER_ENABLED, true)
+        prefs.getBoolean(KEY_MASTER_ENABLED, false)
 
     fun masterEnabledFlow(): Flow<Boolean> = callbackFlow {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
@@ -84,7 +84,7 @@ class SeparationAlertPreferences(context: Context) {
     }
 
     fun getTriggerLevel(): SeparationAlertLevel {
-        val key = prefs.getString(KEY_TRIGGER_LEVEL, SeparationAlertLevel.FAR.key) ?: SeparationAlertLevel.FAR.key
+        val key = prefs.getString(KEY_TRIGGER_LEVEL, SeparationAlertLevel.NO_SIGNAL.key) ?: SeparationAlertLevel.NO_SIGNAL.key
         return SeparationAlertLevel.fromKey(key)
     }
 

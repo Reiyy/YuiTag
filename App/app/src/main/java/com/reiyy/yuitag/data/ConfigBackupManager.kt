@@ -66,9 +66,10 @@ object ConfigBackupManager {
         val health_normal_days: Int = 7,
         val lite_mode_enabled: Boolean = false,
         val debug_mode_enabled: Boolean = false,
-        val separation_alert_master_enabled: Boolean = true,
-        val separation_alert_trigger_level: String = "far",
-        val separation_alert_delay_seconds: Int = 30,
+        val live_notification_enabled: Boolean = false,
+        val separation_alert_master_enabled: Boolean = false,
+        val separation_alert_trigger_level: String = "no_signal",
+        val separation_alert_delay_seconds: Int = 120,
         val separation_alert_final_verification_enabled: Boolean = false
     )
 
@@ -182,9 +183,10 @@ object ConfigBackupManager {
                 writer.name("health_normal_days").value(prefs.getInt("health_normal_days", 7))
                 writer.name("lite_mode_enabled").value(prefs.getBoolean("lite_mode_enabled", false))
                 writer.name("debug_mode_enabled").value(prefs.getBoolean("debug_mode_enabled", false))
-                writer.name("separation_alert_master_enabled").value(prefs.getBoolean("separation_alert_master_enabled", true))
-                writer.name("separation_alert_trigger_level").value(prefs.getString("separation_alert_trigger_level", "far") ?: "far")
-                writer.name("separation_alert_delay_seconds").value(prefs.getInt("separation_alert_delay_seconds", 30))
+                writer.name("live_notification_enabled").value(prefs.getBoolean("live_notification_enabled", false))
+                writer.name("separation_alert_master_enabled").value(prefs.getBoolean("separation_alert_master_enabled", false))
+                writer.name("separation_alert_trigger_level").value(prefs.getString("separation_alert_trigger_level", "no_signal") ?: "no_signal")
+                writer.name("separation_alert_delay_seconds").value(prefs.getInt("separation_alert_delay_seconds", 120))
                 writer.name("separation_alert_final_verification_enabled").value(prefs.getBoolean("separation_alert_final_verification_enabled", false))
                 writer.endObject()
 
@@ -301,8 +303,9 @@ object ConfigBackupManager {
                 .putInt("health_normal_days", s.health_normal_days.coerceAtLeast(1))
                 .putBoolean("lite_mode_enabled", s.lite_mode_enabled)
                 .putBoolean("debug_mode_enabled", s.debug_mode_enabled)
+                .putBoolean("live_notification_enabled", s.live_notification_enabled)
                 .putBoolean("separation_alert_master_enabled", s.separation_alert_master_enabled)
-                .putString("separation_alert_trigger_level", s.separation_alert_trigger_level.ifBlank { "far" })
+                .putString("separation_alert_trigger_level", s.separation_alert_trigger_level.ifBlank { "no_signal" })
                 .putInt("separation_alert_delay_seconds", s.separation_alert_delay_seconds.coerceAtLeast(SeparationAlertPreferences.MIN_DELAY_SECONDS))
                 .putBoolean("separation_alert_final_verification_enabled", s.separation_alert_final_verification_enabled)
                 .apply()

@@ -85,6 +85,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reiyy.yuitag.data.FindMyQueryService
 import com.reiyy.yuitag.data.local.LocationEntity
@@ -1184,23 +1186,54 @@ private fun CustomRangeDialog(
         initialSelectedStartDateMillis = initialStart,
         initialSelectedEndDateMillis = initialEnd
     )
-    AlertDialog(
+    val hasValidRange = state.selectedStartDateMillis != null && state.selectedEndDateMillis != null
+
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text("自定义时间范围") },
-        text = {
-            DateRangePicker(state = state, showModeToggle = false)
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                val s = state.selectedStartDateMillis
-                val e = state.selectedEndDateMillis
-                if (s != null && e != null) onConfirm(s / 1000, e / 1000 + 86399L) else onDismiss()
-            }) { Text("确定") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = true
+        )
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("选择日期范围") },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "取消")
+                        }
+                    },
+                    actions = {
+                        TextButton(
+                            onClick = {
+                                val s = state.selectedStartDateMillis
+                                val e = state.selectedEndDateMillis
+                                if (s != null && e != null) {
+                                    onConfirm(s / 1000, e / 1000 + 86399L)
+                                }
+                            },
+                            enabled = hasValidRange
+                        ) {
+                            Text("确定")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                )
+            }
+        ) { innerPadding ->
+            DateRangePicker(
+                state = state,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                title = null,
+                showModeToggle = false
+            )
         }
-    )
+    }
 }
 
 private fun TimeWindow.label(): String = when (this) {
