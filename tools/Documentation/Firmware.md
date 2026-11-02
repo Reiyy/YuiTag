@@ -21,4 +21,4 @@ YuiTag项目提供了多个不同芯片方案的固件，如无特殊说明，�
 打开J-Flash，新建项目，选择“Silicon Labs EFR32BG22CxxxF512”。  
 
 将Bootloader和App固件烧录即可。
-(BG22平台不提供编译产物，可自行从源码构建)
+(BG22平台暂不提供编译产物，可自行通过**Simplicity Studio V5**从源码构建)

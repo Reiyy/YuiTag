@@ -1,4 +1,4 @@
-# App文档
+﻿# App文档
 
 YuiTag项目提供了YuiTag App作为配套客户端。  
 你需要使用YuiTag App连接和绑定Tag，对Tag进行配置和发出响铃指令，查询FindMy位置等。  
@@ -12,6 +12,7 @@ YuiTag App的所有用户数据均保存再本地，只需配置FindMy位置查�
 ### 地图API配置 
 App需要配置2个地图API分别用于经纬度地址查询和地图底图显示。  
 
+**注！最近接到高德地图的电话，似乎现在不允许个人开发者长期使用了，如你遇到这种情况，可选择使用天地图API**  
 一、高德地图逆地理编码API  
 1.注册[高德开放平台](https://lbs.amap.com/)  
 2.前往[控制台](https://console.amap.com/dev/index)  
@@ -19,10 +20,10 @@ App需要配置2个地图API分别用于经纬度地址查询和地图底图显�
 4.为创建好的应用添加Key，服务平台选择 **Web服务**   
 5.将Key填入App对应配置项即可  
 
-二、天地图API  
-1.注册[天地图](https://www.tianditu.gov.cn/)  
-2.创建新应用，服务类型选择 **服务器端**，前往[我的应用程序](https://cloudcenter.tianditu.gov.cn/center/development/myApp)  
-3.将Key填入App对应配置项即可  
+二、天地图API（逆地理编码与地图底图）  
+1.注册[天地图](https://www.tianditu.gov.cn/)并前往[控制台 - 我的应用](https://console.tianditu.gov.cn/api/key)  
+2.**逆地理编码 Key**：创建新应用，应用类型选择 **浏览器端**，将生成的 Key 填入 App 设置中的「逆地理编码 - 天地图 Key（浏览器端）」  
+3.**地图底图 Key**：创建新应用，应用类型选择 **服务端**，将生成的 Key 填入 App 设置中的「地图底图 - 天地图 Key（服务端）」  
 
 ## FindMy后端配置
 YuiTag App直接使用了macless-haystack后端，  
@@ -149,6 +150,9 @@ FindMy网络：
 
 密钥轮换间隔：  
 该选项可自定义FindMy广播密钥的轮换间隔，如设为15分钟，则表示每15分钟派生一个全新的密钥，并替换为该新密钥进行广播，轮换间隔越短，Tag的位置更新频率可能会更高，但也会增加耗电，和App端向后端查询位置的时间也会更长。  
+
+FindMy广播间隔：
+可自定义配置FindMy广播间隔，默认为2秒，广播间隔过短会增加Tag耗电，过长则会导致被周边Apple设备发现的几率降低。  
 
 FindMy射频功率：  
 同常规射频功率选项，但该项只控制FindMy的广播功率，你可将不太需要较长距离的常规功率设的较低以省电，而将需要尽可能发射的更远的FindMy广播功率设的较强以增加被周围苹果设备发现并上报位置的概率。  
