@@ -479,6 +479,11 @@ class FindSession(
         return writeParamAwait(CryptoUtils.buildFindMyTxPowerConfigFrame(txPowerDbm, key))
     }
 
+    suspend fun writeFindMyAdvInterval(intervalMs: Int): Boolean {
+        val key = aesKey ?: return false
+        return writeParamAwait(CryptoUtils.buildFindMyIntervalConfigFrame(intervalMs, key))
+    }
+
     /**
      * 将预生成的固定密钥组同步给 Sparks 设备:
      * 1. START(total)

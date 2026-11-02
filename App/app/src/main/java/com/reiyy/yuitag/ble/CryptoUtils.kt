@@ -223,6 +223,17 @@ object CryptoUtils {
         return aesCtrEncrypt(aesKey, plaintext)
     }
 
+    /** 构建 Find My 广播间隔配置帧: [0x67][Interval(2B LE)][CRC] → AES 加密 */
+    fun buildFindMyIntervalConfigFrame(intervalMs: Int, aesKey: ByteArray): ByteArray {
+        val plaintext = ByteArray(4)
+        plaintext[0] = YuiTagProtocol.CMD_FINDMY_INTERVAL_CONFIG
+        plaintext[1] = (intervalMs and 0xFF).toByte()
+        plaintext[2] = ((intervalMs shr 8) and 0xFF).toByte()
+        plaintext[3] = crc8(plaintext, 0, 3)
+        FileLog.d(TAG, "构建FindMy广播间隔配置帧: Interval=${intervalMs}ms")
+        return aesCtrEncrypt(aesKey, plaintext)
+    }
+
     /** 构建 OTA 授权帧: [0x6F][0xFF][CRC] → AES 加密 */
     fun buildOtaAuthFrame(aesKey: ByteArray): ByteArray {
         val plaintext = byteArrayOf(YuiTagProtocol.CMD_OTA_AUTH, YuiTagProtocol.CMD_ACTION_EXEC, 0x00.toByte())

@@ -94,6 +94,7 @@ object YuiTagProtocol {
     const val CMD_FINDMY_STATUS         = 0x63.toByte()   // 查询 Find My 状态
     const val CMD_FINDMY_PERIOD_CONFIG  = 0x64.toByte()   // 密钥轮换时间窗口配置
     const val CMD_FINDMY_KEYS_SYNC      = 0x66.toByte()   // 固定密钥组分片同步 (Sparks 低配版)
+    const val CMD_FINDMY_INTERVAL_CONFIG = 0x67.toByte()  // Find My 广播间隔配置
 
     // Find My 固定密钥传输子操作码与参数边界
     const val SUB_OP_KEYS_START         = 0x01.toByte()
@@ -173,7 +174,9 @@ object YuiTagProtocol {
         val maxTxPower: Int = 4,            // 硬件支持最高发射功率 (dBm)
         val txPowerSupported: Boolean = false, // 固件是否支持常规广播发射功率调节
         val findmyTxPower: Int = 4,         // Find My 广播发射功率 (dBm)
-        val findmyTxPowerSupported: Boolean = false // 固件是否支持 Find My 发射功率调节
+        val findmyTxPowerSupported: Boolean = false, // 固件是否支持 Find My 发射功率调节
+        val findmyAdvInterval: Int = 2000,  // Find My 广播间隔 (ms)
+        val findmyAdvIntervalSupported: Boolean = false // 固件是否支持 Find My 广播间隔调节
     )
 
     /** Find My 状态查询响应 */
@@ -252,6 +255,14 @@ object YuiTagProtocol {
             findmyTxPowerSupported = true
         }
 
+        var findmyAdvInterval: Int? = null
+        var findmyAdvIntervalSupported = false
+        if (value.size >= nameEnd + 12) {
+            findmyAdvInterval = ((value[nameEnd + 11].toInt() and 0xFF) shl 8) or
+                (value[nameEnd + 10].toInt() and 0xFF)
+            findmyAdvIntervalSupported = true
+        }
+
         return DeviceParamInfo(
             broadcastName = broadcastName,
             advIntervalNormal = advIntervalNormal ?: 1500,
@@ -264,7 +275,9 @@ object YuiTagProtocol {
             maxTxPower = maxTxPower ?: 4,
             txPowerSupported = txPowerSupported,
             findmyTxPower = findmyTxPower ?: 4,
-            findmyTxPowerSupported = findmyTxPowerSupported
+            findmyTxPowerSupported = findmyTxPowerSupported,
+            findmyAdvInterval = findmyAdvInterval ?: 2000,
+            findmyAdvIntervalSupported = findmyAdvIntervalSupported
         )
     }
 

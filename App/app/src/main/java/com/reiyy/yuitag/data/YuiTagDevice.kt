@@ -38,6 +38,7 @@ data class YuiTagDevice(
     val boundAt: Long = 0,                     // 绑定时间戳
     val separationAlertEnabled: Boolean = false, // 遗落提醒开关
     val findmyTxPower: Int = 0,                // Find My 广播发射功率 (dBm)
+    val findmyAdvInterval: Int = 2000,         // Find My 广播间隔 (ms)
     val fixedKeysJson: String = "",            // Sparks 固定密钥池 JSON
     val fixedKeyCount: Int? = null             // Sparks 固定密钥池设定数量
 ) {
@@ -49,6 +50,7 @@ data class YuiTagDevice(
             rssi == other.rssi &&
             txPower == other.txPower &&
             findmyTxPower == other.findmyTxPower &&
+            findmyAdvInterval == other.findmyAdvInterval &&
             version == other.version &&
             battery == other.battery &&
             advInterval == other.advInterval &&
@@ -88,6 +90,7 @@ data class YuiTagDevice(
         result = 31 * result + rssi
         result = 31 * result + txPower
         result = 31 * result + findmyTxPower
+        result = 31 * result + findmyAdvInterval
         result = 31 * result + fixedKeysJson.hashCode()
         result = 31 * result + (fixedKeyCount ?: 0)
         result = 31 * result + version

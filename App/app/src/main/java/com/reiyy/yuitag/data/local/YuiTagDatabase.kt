@@ -15,12 +15,13 @@ import java.io.RandomAccessFile
     entities = [DeviceEntity::class, LocationEntity::class, NotificationEntity::class],
     // ⚠️ 数据库升级规范：实体字段变动时必须递增此版本号，严禁在当前版本硬改！
     // 后续升级示例（v5 -> v6）：version = 6, autoMigrations = [AutoMigration(from = 5, to = 6)]
-    version = 6,
+    version = 7,
     autoMigrations = [
         androidx.room.AutoMigration(from = 2, to = 3),
         androidx.room.AutoMigration(from = 3, to = 4),
         androidx.room.AutoMigration(from = 4, to = 5),
-        androidx.room.AutoMigration(from = 5, to = 6)
+        androidx.room.AutoMigration(from = 5, to = 6),
+        androidx.room.AutoMigration(from = 6, to = 7)
     ],
     exportSchema = true
 )
@@ -33,7 +34,7 @@ abstract class YuiTagDatabase : RoomDatabase() {
 
     companion object {
         const val DATABASE_NAME = "yuitag.db"
-        const val DATABASE_VERSION = 6
+        const val DATABASE_VERSION = 7
 
         @Volatile
         private var INSTANCE: YuiTagDatabase? = null
@@ -108,6 +109,16 @@ abstract class YuiTagDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * 手动迁移实例：为 devices 表补充 findmyAdvInterval 字段
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                FileLog.i("DB", "执行数据库手动迁移: v6 -> v7 (ADD COLUMN findmyAdvInterval)")
+                db.execSQL("ALTER TABLE devices ADD COLUMN findmyAdvInterval INTEGER NOT NULL DEFAULT 2000")
+            }
+        }
+
         fun getInstance(context: Context): YuiTagDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: buildDatabase(context.applicationContext).also { INSTANCE = it }
@@ -123,7 +134,7 @@ abstract class YuiTagDatabase : RoomDatabase() {
                 YuiTagDatabase::class.java,
                 DATABASE_NAME
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .fallbackToDestructiveMigration()
                 .addCallback(object : Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) {

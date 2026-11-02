@@ -58,6 +58,10 @@ interface DeviceDao {
     @Query("UPDATE devices SET findmyTxPower = :txPower WHERE uid = :uid")
     suspend fun updateFindMyTxPower(uid: String, txPower: Int)
 
+    /** 更新 Find My 广播间隔 (ms) */
+    @Query("UPDATE devices SET findmyAdvInterval = :interval WHERE uid = :uid")
+    suspend fun updateFindMyAdvInterval(uid: String, interval: Int)
+
     /** 更新 Find My 网络开关 */
     @Query("UPDATE devices SET findmyEnabled = :enabled WHERE uid = :uid")
     suspend fun updateFindMyEnabled(uid: String, enabled: Boolean)

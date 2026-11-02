@@ -178,6 +178,9 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                         if (param.findmyTxPowerSupported) {
                             repository.updateFindMyTxPower(deviceUid, param.findmyTxPower)
                         }
+                        if (param.findmyAdvIntervalSupported) {
+                            repository.updateFindMyAdvInterval(deviceUid, param.findmyAdvInterval)
+                        }
                         repository.updateFindMyEnabled(deviceUid, param.findmyEnabled)
                         repository.updateFindMySupport(deviceUid, param.findmySupported)
                         repository.updateFindMyPeriod(deviceUid,

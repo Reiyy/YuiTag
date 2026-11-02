@@ -105,6 +105,7 @@ object ConfigBackupManager {
         val separationAlertEnabled: Boolean = false,
         val txPower: Int = 0,
         val findmyTxPower: Int = 0,
+        val findmyAdvInterval: Int = 2000,
         val theme: Map<String, String> = emptyMap()   // 文件名 -> Base64
     )
 
@@ -240,6 +241,7 @@ object ConfigBackupManager {
                     writer.name("separationAlertEnabled").value(entity.separationAlertEnabled)
                     writer.name("txPower").value(entity.txPower)
                     writer.name("findmyTxPower").value(entity.findmyTxPower)
+                    writer.name("findmyAdvInterval").value(entity.findmyAdvInterval)
 
                     writer.name("theme")
                     writer.beginObject()
@@ -363,7 +365,8 @@ object ConfigBackupManager {
             battery = bd.battery,
             separationAlertEnabled = bd.separationAlertEnabled,
             txPower = bd.txPower,
-            findmyTxPower = bd.findmyTxPower
+            findmyTxPower = bd.findmyTxPower,
+            findmyAdvInterval = if (bd.findmyAdvInterval in 200..5000) bd.findmyAdvInterval else 2000
         )
     }
 

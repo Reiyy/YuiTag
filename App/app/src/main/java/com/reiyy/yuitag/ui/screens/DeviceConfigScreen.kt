@@ -206,6 +206,18 @@ fun DeviceConfigScreen(
                                     onClick = { showConfirmSyncDialog = true }
                                 )
                             }
+                            if (uiState.findmyAdvIntervalSupported) {
+                                HorizontalDivider()
+                                SettingsTextPreference(
+                                    icon = Icons.Outlined.Timelapse,
+                                    title = "Find My 广播间隔",
+                                    subtitle = "控制离线寻物广播频率 (200-5000ms，默认 2000ms；越短越易被捕获但更耗电)",
+                                    value = uiState.findmyAdvInterval,
+                                    placeholder = "2000",
+                                    keyboardType = KeyboardType.Number,
+                                    onSave = { viewModel.updateFindMyAdvInterval(it) }
+                                )
+                            }
                             if (uiState.findmyTxPowerSupported) {
                                 HorizontalDivider()
                                 SettingsRadioPreference(

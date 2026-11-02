@@ -363,6 +363,15 @@ class DeviceRepository(
         }
     }
 
+    /** 更新 Find My 广播间隔 (ms) */
+    suspend fun updateFindMyAdvInterval(uid: String, interval: Int) {
+        dao.updateFindMyAdvInterval(uid, interval)
+        _boundDevicesCache.update { current ->
+            val existing = current[uid]
+            if (existing != null) current + (uid to existing.copy(findmyAdvInterval = interval)) else current
+        }
+    }
+
     /** 持久化设备 MAC 地址（仅地址变化时写库，避免重复写入） */
     suspend fun saveMacAddress(uid: String, mac: String) {
         if (mac.isBlank()) return

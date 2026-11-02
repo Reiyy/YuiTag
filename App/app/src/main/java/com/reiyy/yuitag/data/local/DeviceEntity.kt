@@ -51,6 +51,8 @@ data class DeviceEntity(
     val txPower: Int = 0, // 常规广播发射功率 (dBm)
     @androidx.room.ColumnInfo(defaultValue = "0")
     val findmyTxPower: Int = 0, // Find My 广播发射功率 (dBm)
+    @androidx.room.ColumnInfo(defaultValue = "2000")
+    val findmyAdvInterval: Int = 2000, // Find My 广播间隔 (ms)
     @androidx.room.ColumnInfo(defaultValue = "''")
     val fixedKeysJson: String = "", // Sparks 固定密钥池 JSON
     @androidx.room.ColumnInfo(defaultValue = "NULL")
@@ -89,6 +91,7 @@ data class DeviceEntity(
             separationAlertEnabled == other.separationAlertEnabled &&
             txPower == other.txPower &&
             findmyTxPower == other.findmyTxPower &&
+            findmyAdvInterval == other.findmyAdvInterval &&
             fixedKeysJson == other.fixedKeysJson &&
             fixedKeyCount == other.fixedKeyCount &&
             bytesEq(aesKey, other.aesKey) &&
@@ -126,6 +129,7 @@ data class DeviceEntity(
         result = 31 * result + separationAlertEnabled.hashCode()
         result = 31 * result + txPower
         result = 31 * result + findmyTxPower
+        result = 31 * result + findmyAdvInterval
         result = 31 * result + fixedKeysJson.hashCode()
         result = 31 * result + (fixedKeyCount ?: 0)
         result = 31 * result + (aesKey?.contentHashCode() ?: 0)
@@ -169,6 +173,7 @@ fun DeviceEntity.toDomainModel(): YuiTagDevice = YuiTagDevice(
     boundAt = boundAt,
     separationAlertEnabled = separationAlertEnabled,
     findmyTxPower = findmyTxPower,
+    findmyAdvInterval = findmyAdvInterval,
     fixedKeysJson = fixedKeysJson,
     fixedKeyCount = fixedKeyCount
 )
