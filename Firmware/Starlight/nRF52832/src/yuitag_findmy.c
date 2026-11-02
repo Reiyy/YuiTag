@@ -27,7 +27,11 @@
 #define FINDMY_ID 1
 
 static struct bt_le_ext_adv *s_adv = NULL;
-static int8_t s_findmy_tx_power = DEFAULT_FINDMY_TX_POWER;
+static int8_t   s_findmy_tx_power = DEFAULT_FINDMY_TX_POWER;
+static uint16_t s_findmy_adv_interval_ms = FINDMY_ADV_INTERVAL_DEFAULT_MS;
+static uint8_t  s_cached_key[FINDMY_KEY_LEN];
+static uint8_t  s_cached_status_byte = 0;
+static bool     s_has_cached_key = false;
 
 static void set_ext_adv_tx_power(struct bt_le_ext_adv *adv, int8_t power_dbm)
 {
@@ -82,6 +86,14 @@ void platform_findmy_adv_set_tx_power(int8_t power_dbm)
     }
 }
 
+void platform_findmy_adv_set_interval(uint16_t interval_ms)
+{
+    s_findmy_adv_interval_ms = interval_ms;
+    if (s_adv && s_has_cached_key) {
+        platform_findmy_adv_start(s_cached_key, s_cached_status_byte);
+    }
+}
+
 static bool ensure_identity(const uint8_t key[FINDMY_KEY_LEN])
 {
     bt_addr_le_t addrs[CONFIG_BT_ID_MAX];
@@ -126,7 +138,7 @@ bool platform_findmy_adv_start(const uint8_t key[28], uint8_t status_byte)
         return false;
     }
 
-    uint32_t units = (FINDMY_ADV_INTERVAL_MS * 8U) / 5U;
+    uint32_t units = ((uint32_t)s_findmy_adv_interval_ms * 8U) / 5U;
     uint32_t opt = BT_LE_ADV_OPT_USE_IDENTITY;
     struct bt_le_adv_param param = BT_LE_ADV_PARAM_INIT(
         opt, units, units, NULL);
@@ -158,6 +170,10 @@ bool platform_findmy_adv_start(const uint8_t key[28], uint8_t status_byte)
         return false;
     }
 
+    memcpy(s_cached_key, key, FINDMY_KEY_LEN);
+    s_cached_status_byte = status_byte;
+    s_has_cached_key = true;
+
     return true;
 }
 
@@ -166,6 +182,9 @@ bool platform_findmy_adv_update_data(const uint8_t key[28], uint8_t status_byte)
     if (!s_adv) {
         return false;
     }
+
+    memcpy(s_cached_key, key, FINDMY_KEY_LEN);
+    s_cached_status_byte = status_byte;
 
     uint8_t raw[31];
     yuitag_findmy_build_adv_data(key, status_byte, raw);
@@ -178,6 +197,7 @@ bool platform_findmy_adv_update_data(const uint8_t key[28], uint8_t status_byte)
 
 void platform_findmy_adv_stop(void)
 {
+    s_has_cached_key = false;
     if (s_adv) {
         bt_le_ext_adv_stop(s_adv);
         bt_le_ext_adv_delete(s_adv);

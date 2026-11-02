@@ -45,6 +45,7 @@ typedef struct {
     uint16_t advInterval;
     uint16_t findModeInterval;
     uint16_t savedAdvInterval;
+    uint16_t findmyAdvInterval;
     uint8_t  batteryLevel;
     int8_t   txPower;
     int8_t   findmyTxPower;

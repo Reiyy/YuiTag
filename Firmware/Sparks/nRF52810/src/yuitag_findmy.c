@@ -26,8 +26,11 @@
 #define FINDMY_ID 1
 
 static struct bt_le_ext_adv *s_adv = NULL;
-static int8_t s_findmy_tx_power = DEFAULT_FINDMY_TX_POWER;
-static bool   s_advertising = false;
+static int8_t   s_findmy_tx_power = DEFAULT_FINDMY_TX_POWER;
+static uint16_t s_findmy_adv_interval_ms = FINDMY_ADV_INTERVAL_DEFAULT_MS;
+static bool     s_advertising = false;
+
+static bool s_keys_load_key(uint8_t index, uint8_t key_out[FINDMY_KEY_LEN]);
 
 static uint8_t  s_key_count = 0;
 static uint8_t  s_current_idx = 0;
@@ -92,6 +95,17 @@ void platform_findmy_adv_set_tx_power(int8_t power_dbm)
     }
 }
 
+void platform_findmy_adv_set_interval(uint16_t interval_ms)
+{
+    s_findmy_adv_interval_ms = interval_ms;
+    if (s_adv && s_advertising) {
+        uint8_t curKey[FINDMY_KEY_LEN];
+        if (s_keys_load_key(s_current_idx, curKey)) {
+            platform_findmy_adv_start(curKey, s_battery_status);
+        }
+    }
+}
+
 // ============================================================
 // BLE Identity 1 随机地址配置
 // ============================================================
@@ -142,7 +156,7 @@ bool platform_findmy_adv_start(const uint8_t key[28], uint8_t status_byte)
         return false;
     }
 
-    uint32_t units = (FINDMY_ADV_INTERVAL_MS * 8U) / 5U;
+    uint32_t units = ((uint32_t)s_findmy_adv_interval_ms * 8U) / 5U;
     uint32_t opt = BT_LE_ADV_OPT_USE_IDENTITY;
     struct bt_le_adv_param param = BT_LE_ADV_PARAM_INIT(opt, units, units, NULL);
     param.id = FINDMY_ID;

@@ -11,8 +11,9 @@
 #include "sl_bt_api.h"
 #include <string.h>
 
-static uint8_t s_adv_handle = 0xFF;
-static int8_t  s_findmy_tx_power = DEFAULT_FINDMY_TX_POWER;
+static uint8_t  s_adv_handle = 0xFF;
+static int8_t   s_findmy_tx_power = DEFAULT_FINDMY_TX_POWER;
+static uint16_t s_findmy_adv_interval_ms = FINDMY_ADV_INTERVAL_DEFAULT_MS;
 
 void platform_findmy_adv_set_tx_power(int8_t power_dbm)
 {
@@ -31,9 +32,27 @@ void platform_findmy_adv_set_tx_power(int8_t power_dbm)
     }
 }
 
+void platform_findmy_adv_set_interval(uint16_t interval_ms)
+{
+    s_findmy_adv_interval_ms = interval_ms;
+    if (s_adv_handle != 0xFF) {
+        uint32_t interval_units = ((uint32_t)interval_ms * 8U) / 5U;
+        sl_bt_advertiser_stop(s_adv_handle);
+        sl_status_t sc = sl_bt_advertiser_set_timing(s_adv_handle,
+                                                     interval_units, interval_units, 0, 0);
+        if (sc == SL_STATUS_OK) {
+            platform_log("[FINDMY] Set interval: %d ms", interval_ms);
+            sl_bt_legacy_advertiser_start(s_adv_handle, sl_bt_legacy_advertiser_non_connectable);
+        } else {
+            platform_log("[FINDMY] Set timing failed: 0x%04X", sc);
+        }
+    }
+}
+
 bool platform_findmy_adv_start(const uint8_t key[28], uint8_t status_byte)
 {
     sl_status_t sc;
+    uint32_t interval_units = ((uint32_t)s_findmy_adv_interval_ms * 8U) / 5U;
 
     if (s_adv_handle == 0xFF) {
         sc = sl_bt_advertiser_create_set(&s_adv_handle);
@@ -42,7 +61,6 @@ bool platform_findmy_adv_start(const uint8_t key[28], uint8_t status_byte)
             return false;
         }
 
-        uint32_t interval_units = (FINDMY_ADV_INTERVAL_MS * 8U) / 5U;
         sl_bt_advertiser_set_timing(s_adv_handle,
                                      interval_units, interval_units, 0, 0);
 
@@ -51,6 +69,8 @@ bool platform_findmy_adv_start(const uint8_t key[28], uint8_t status_byte)
         sl_bt_advertiser_set_tx_power(s_adv_handle, req_power, &actual_power);
     } else {
         sl_bt_advertiser_stop(s_adv_handle);
+        sl_bt_advertiser_set_timing(s_adv_handle,
+                                     interval_units, interval_units, 0, 0);
     }
 
     bd_addr addr;

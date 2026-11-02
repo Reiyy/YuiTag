@@ -11,7 +11,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define FINDMY_ADV_INTERVAL_MS  1000
+#define FINDMY_ADV_INTERVAL_MS  FINDMY_ADV_INTERVAL_DEFAULT_MS
 
 // ---- 模块生命周期 (全平台通用) ----
 void yuitag_findmy_init(void);

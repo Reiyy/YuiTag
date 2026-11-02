@@ -93,6 +93,18 @@ void yuitag_device_init(YuiTagDevice *dev, const uint8_t mac[6])
     }
     platform_findmy_adv_set_tx_power(dev->findmyTxPower);
 
+    uint16_t rawFmInterval = platform_storage_load_u16(NVM3_KEY_FINDMY_ADV_INTERVAL, 0xFFFF);
+    if (rawFmInterval == 0xFFFF || rawFmInterval < FINDMY_ADV_INTERVAL_MIN_MS || rawFmInterval > FINDMY_ADV_INTERVAL_MAX_MS) {
+        if (rawFmInterval != 0xFFFF) {
+            platform_log("[INIT] FindMy AdvInterval (%dms) out of bounds, healing to default", rawFmInterval);
+        }
+        dev->findmyAdvInterval = FINDMY_ADV_INTERVAL_DEFAULT_MS;
+        platform_storage_save_u16(NVM3_KEY_FINDMY_ADV_INTERVAL, dev->findmyAdvInterval);
+    } else {
+        dev->findmyAdvInterval = rawFmInterval;
+    }
+    platform_findmy_adv_set_interval(dev->findmyAdvInterval);
+
 #ifndef IS_SPARKS
     dev->findmyEnabled = platform_storage_load_bool(NVM3_KEY_FINDMY_ENABLED, true);
 #else
@@ -123,6 +135,7 @@ void yuitag_device_init(YuiTagDevice *dev, const uint8_t mac[6])
         platform_storage_save_u16(NVM3_KEY_FIND_INTERVAL, dev->findModeInterval);
         platform_storage_save_u16(NVM3_KEY_TX_POWER, (uint16_t)(uint8_t)dev->txPower);
         platform_storage_save_u16(NVM3_KEY_FINDMY_TX_POWER, (uint16_t)(uint8_t)dev->findmyTxPower);
+        platform_storage_save_u16(NVM3_KEY_FINDMY_ADV_INTERVAL, dev->findmyAdvInterval);
         platform_storage_save_bool(NVM3_KEY_IS_BOUND, dev->isBound);
         platform_storage_save_bool(NVM3_KEY_FINDMY_ENABLED, dev->findmyEnabled);
     } else {
@@ -138,6 +151,7 @@ void yuitag_device_init(YuiTagDevice *dev, const uint8_t mac[6])
     platform_log("[INIT] TxPower:      %d dBm", dev->txPower);
 #ifndef IS_SPARKS
     platform_log("[INIT] FindMyTxPower:%d dBm", dev->findmyTxPower);
+    platform_log("[INIT] FindMyInterval:%dms", dev->findmyAdvInterval);
 #endif
     platform_log("[INIT] State:        %s", dev->isBound ? "BOUND" : "UNBOUND");
 #ifndef IS_SPARKS
@@ -556,6 +570,9 @@ void yuitag_device_clear_binding(YuiTagDevice *dev)
     dev->findmyTxPower = (int8_t)DEFAULT_FINDMY_TX_POWER;
     platform_storage_save_u16(NVM3_KEY_FINDMY_TX_POWER, (uint16_t)(uint8_t)dev->findmyTxPower);
     platform_findmy_adv_set_tx_power(dev->findmyTxPower);
+    dev->findmyAdvInterval = FINDMY_ADV_INTERVAL_DEFAULT_MS;
+    platform_storage_save_u16(NVM3_KEY_FINDMY_ADV_INTERVAL, dev->findmyAdvInterval);
+    platform_findmy_adv_set_interval(dev->findmyAdvInterval);
     platform_storage_save_bool(NVM3_KEY_IS_BOUND, false);
     platform_storage_save_bool(NVM3_KEY_FINDMY_ENABLED, false);
 
@@ -605,6 +622,7 @@ void yuitag_device_persist_params(YuiTagDevice *dev)
     platform_storage_save_u16(NVM3_KEY_FIND_INTERVAL, dev->findModeInterval);
     platform_storage_save_u16(NVM3_KEY_TX_POWER, (uint16_t)(uint8_t)dev->txPower);
     platform_storage_save_u16(NVM3_KEY_FINDMY_TX_POWER, (uint16_t)(uint8_t)dev->findmyTxPower);
+    platform_storage_save_u16(NVM3_KEY_FINDMY_ADV_INTERVAL, dev->findmyAdvInterval);
     platform_storage_save_bool(NVM3_KEY_FINDMY_ENABLED, dev->findmyEnabled);
     platform_log("[PERSIST] Device params saved to storage (normalAdv=%dms txPower=%d)", normalInterval, dev->txPower);
 }
@@ -616,7 +634,7 @@ size_t yuitag_device_param_read(YuiTagDevice *dev, uint8_t *buf, size_t maxLen)
         nameLen = DEVICE_NAME_MAX_LEN;
     }
 
-    size_t total = 1 + nameLen + 10;
+    size_t total = 1 + nameLen + 10 + 2;
     if (total > maxLen) {
         return 0;
     }
@@ -635,10 +653,12 @@ size_t yuitag_device_param_read(YuiTagDevice *dev, uint8_t *buf, size_t maxLen)
     buf[8 + nameLen] = (uint8_t)(int8_t)HW_TX_POWER_MIN;
     buf[9 + nameLen] = (uint8_t)(int8_t)HW_TX_POWER_MAX;
     buf[10 + nameLen] = (uint8_t)dev->findmyTxPower;
+    buf[11 + nameLen] = (uint8_t)(dev->findmyAdvInterval & 0xFF);
+    buf[12 + nameLen] = (uint8_t)((dev->findmyAdvInterval >> 8) & 0xFF);
 
-    platform_log("[PARAM] Read: name=%s adv=%dms find=%dms findmy=%d period=%d txPower=%d findmyTxPower=%d",
+    platform_log("[PARAM] Read: name=%s adv=%dms find=%dms findmy=%d period=%d txPower=%d findmyTxPower=%d fmAdvInt=%dms",
                  dev->deviceName, dev->advInterval, dev->findModeInterval,
-                 dev->findmyEnabled, buf[6 + nameLen], dev->txPower, dev->findmyTxPower);
+                 dev->findmyEnabled, buf[6 + nameLen], dev->txPower, dev->findmyTxPower, dev->findmyAdvInterval);
     return total;
 }
 
@@ -789,6 +809,22 @@ uint8_t yuitag_device_param_write(YuiTagDevice *dev, const uint8_t *cipherData, 
             } else {
                 platform_log("[PARAM] FindMy TX power rejected (%d dBm out of [%d, %d])",
                              newPower, HW_TX_POWER_MIN, HW_TX_POWER_MAX);
+            }
+        }
+        break;
+    }
+    case CMD_FINDMY_INTERVAL_CONFIG: {
+        if (len >= 4) {
+            uint16_t newInterval = (uint16_t)decBuf[1] | ((uint16_t)decBuf[2] << 8);
+            if (newInterval >= FINDMY_ADV_INTERVAL_MIN_MS && newInterval <= FINDMY_ADV_INTERVAL_MAX_MS) {
+                dev->findmyAdvInterval = newInterval;
+                dev->pendingParamSave = true;
+                platform_findmy_adv_set_interval(dev->findmyAdvInterval);
+                status = STATUS_SUCCESS;
+                platform_log("[PARAM] FindMy adv interval: %dms", dev->findmyAdvInterval);
+            } else {
+                platform_log("[PARAM] FindMy adv interval rejected (%dms out of [%d, %d])",
+                             newInterval, FINDMY_ADV_INTERVAL_MIN_MS, FINDMY_ADV_INTERVAL_MAX_MS);
             }
         }
         break;
