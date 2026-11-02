@@ -95,14 +95,10 @@ fun SettingsMapScreen(onBack: () -> Unit) {
                 } else {
                     SettingsTextPreference(
                         icon = Icons.Outlined.LocationOn,
-                        title = "天地图 Key",
-                        subtitle = if (tiandituGeocodeKey.isBlank() && tiandituKey.isNotBlank()) {
-                            "已自动复用底图天地图 Key；可在此填写独立 Key 覆盖"
-                        } else {
-                            "用于地址反查；留空自动复用底图 Key"
-                        },
+                        title = "天地图 Key（浏览器端）",
+                        subtitle = "用于地址反查；需在控制台申请「浏览器端」Key",
                         value = tiandituGeocodeKey,
-                        placeholder = if (tiandituKey.isNotBlank()) "留空自动复用底图 Key" else "在 console.tianditu.gov.cn 申请",
+                        placeholder = "在 console.tianditu.gov.cn 申请浏览器端 Key",
                         onSave = { tiandituGeocodeKey = it; service.saveTiandituGeocodeKey(it) }
                     )
                 }
@@ -112,10 +108,10 @@ fun SettingsMapScreen(onBack: () -> Unit) {
             SettingsCard {
                 SettingsTextPreference(
                     icon = Icons.Outlined.Map,
-                    title = "天地图 Key",
-                    subtitle = "填写后主界面使用天地图；不填回退 OpenStreetMap",
+                    title = "天地图 Key（服务端）",
+                    subtitle = "用于加载底图；需在控制台申请「服务端」Key；不填回退 OpenStreetMap",
                     value = tiandituKey,
-                    placeholder = "在 console.tianditu.gov.cn 申请",
+                    placeholder = "在 console.tianditu.gov.cn 申请服务端 Key",
                     onSave = { tiandituKey = it; service.saveTiandituKey(it) }
                 )
                 HorizontalDivider()

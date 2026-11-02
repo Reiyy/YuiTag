@@ -15,7 +15,9 @@ import org.osmdroid.util.MapTileIndex
  *  - img 影像底图 / cia 影像注记
  *  - ter 地形晕渲 / cta 地形注记
  *
- * key 为 URL 参数 tk，可运行时配置（用户自填），不填时上层回退 OSM。
+ * 密钥说明：
+ * key 为 URL 参数 tk，需在天地图控制台 (console.tianditu.gov.cn) 申请【服务端】API Key，
+ * 独立配置，不与逆地理编码所需的【浏览器端】Key 复用。不填时上层回退 OSM。
  */
 class TiandituTileSource(
     name: String,

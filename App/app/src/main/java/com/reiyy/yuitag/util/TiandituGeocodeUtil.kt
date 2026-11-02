@@ -14,6 +14,10 @@ import java.net.URLEncoder
  * 官方服务地址：https://lbs.tianditu.gov.cn/server/geocoding.html
  * 接口：GET https://api.tianditu.gov.cn/geocoder?postStr={"lon":...,"lat":...,"ver":1}&type=geocode&tk=...
  *
+ * 密钥说明：
+ * 逆地理编码需在天地图控制台 (console.tianditu.gov.cn) 申请【浏览器端】API Key。
+ * 与地图底图所需的【服务端】Key 彻底解耦独立，不进行复用。
+ *
  * 坐标系说明：
  * 天地图基于 CGCS2000 国家大地坐标系，在米级民用精度下与 WGS-84 基本完全重合。
  * 因此直接传入 WGS-84 坐标，严禁转为 GCJ-02 火星坐标。
@@ -23,7 +27,6 @@ class TiandituGeocodeUtil(private val context: Context) : GeocodeProvider {
         private const val TAG = "TiandituGeocode"
         private const val PREF_NAME = "yuitag_settings"
         private const val KEY_TIANDITU_GEOCODE = "tianditu_geocode_key"
-        private const val KEY_TIANDITU_MAP = "tianditu_key"
         private const val CACHE_PREFIX = "tianditu_geocode_v1_"
         private const val BASE_URL = "https://api.tianditu.gov.cn/geocoder"
     }
@@ -34,19 +37,17 @@ class TiandituGeocodeUtil(private val context: Context) : GeocodeProvider {
     // 内存缓存与磁盘缓存（SharedPreferences 按坐标存 JSON），避免跨会话重复请求
     private val cache = mutableMapOf<String, GeocodeAddress?>()
 
-    /** 逆地理编码实际使用的 Key：优先专用 Key，若未填则自动复用底图天地图 Key */
+    /** 逆地理编码实际使用的 Key（浏览器端 Key）：未填则为空，不复用底图 Key */
     fun getGeocodeKey(): String {
-        val customKey = prefs.getString(KEY_TIANDITU_GEOCODE, "")?.trim() ?: ""
-        if (customKey.isNotEmpty()) return customKey
-        return prefs.getString(KEY_TIANDITU_MAP, "")?.trim() ?: ""
+        return prefs.getString(KEY_TIANDITU_GEOCODE, "")?.trim() ?: ""
     }
 
     /** 获取专门为逆地理编码设置的 Key（若未填则为空，用于设置页输入框回显） */
-    fun getDirectGeocodeKey(): String = prefs.getString(KEY_TIANDITU_GEOCODE, "") ?: ""
+    fun getDirectGeocodeKey(): String = getGeocodeKey()
 
     /** 保存专门为逆地理编码设置的 Key */
     fun saveGeocodeKey(key: String) {
-        prefs.edit().putString(KEY_TIANDITU_GEOCODE, key).apply()
+        prefs.edit().putString(KEY_TIANDITU_GEOCODE, key.trim()).apply()
     }
 
     /** 快速从内存或磁盘缓存获取已解析的地址，不发起网络请求 */

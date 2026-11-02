@@ -211,7 +211,7 @@ fun DeviceConfigScreen(
                                 SettingsTextPreference(
                                     icon = Icons.Outlined.Timelapse,
                                     title = "Find My 广播间隔",
-                                    subtitle = "控制离线寻物广播频率 (200-5000ms，默认 2000ms；越短越易被捕获但更耗电)",
+                                    subtitle = "范围 200-5000 ms，默认 2000 ms",
                                     value = uiState.findmyAdvInterval,
                                     placeholder = "2000",
                                     keyboardType = KeyboardType.Number,
