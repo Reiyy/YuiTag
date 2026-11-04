@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlinAndroid)
     alias(libs.plugins.kotlinCompose)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.aboutLibraries)
 }
 
 android {
@@ -81,6 +82,9 @@ dependencies {
 
     // Gson (theme config JSON serialization)
     implementation("com.google.code.gson:gson:2.11.0")
+
+    // AboutLibraries (自动化开源许可)
+    implementation(libs.aboutlibraries.compose.m3)
 
     // Testing
     testImplementation(libs.junit)

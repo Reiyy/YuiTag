@@ -5,33 +5,39 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.net.Uri
-import com.reiyy.yuitag.data.NotificationRepository
+import android.os.Build
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.outlined.Article
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.Gavel
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -53,25 +59,39 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.reiyy.yuitag.data.GithubReleaseChecker
 import com.reiyy.yuitag.data.NoReleaseException
+import com.reiyy.yuitag.data.NotificationRepository
+import com.reiyy.yuitag.ui.components.SettingsCard
+import com.reiyy.yuitag.ui.components.SettingsHeader
+import com.reiyy.yuitag.ui.components.SettingsRow
 import com.reiyy.yuitag.util.VersionUtils
 import kotlinx.coroutines.launch
 
 private const val GITHUB_REPO_URL = "https://github.com/Reiyy/YuiTag"
+private const val GPL_LICENSE_URL = "https://www.gnu.org/licenses/gpl-3.0.html"
 
 /**
- * 关于页 — App 图标、版本、开源项目链接与 GitHub Release 更新检查。
+ * 关于页 — App 信息、版本检查、开源协议、第三方许可与项目致谢。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AboutScreen(
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onNavigateToLicenses: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val versionName = remember {
+    val (versionName, versionCode) = remember {
         try {
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: ""
+            val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            val name = pInfo.versionName ?: "1.0.0"
+            val code = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                pInfo.longVersionCode
+            } else {
+                @Suppress("DEPRECATION")
+                pInfo.versionCode.toLong()
+            }
+            name to code
         } catch (_: Exception) {
-            ""
+            "1.0.0" to 1L
         }
     }
 
@@ -81,12 +101,38 @@ fun AboutScreen(
     var updateStatus by remember { mutableStateOf<String?>(null) }
     var newVersionTag by remember { mutableStateOf<String?>(null) }
 
-    // AdaptiveIconDrawable 无法被 painterResource 直接栅格化，这里手动绘制为位图
+    // 将 AdaptiveIconDrawable 栅格化为位图展示
     val appIcon = remember {
         try {
             renderAppIcon(context)
         } catch (_: Exception) {
             null
+        }
+    }
+
+    fun doCheckUpdate() {
+        if (isChecking) return
+        isChecking = true
+        updateStatus = "正在检查更新..."
+        newVersionTag = null
+        scope.launch {
+            try {
+                val release = checker.checkLatestRelease()
+                if (release.tagName.isNotEmpty() && VersionUtils.isNewerVersion(release.tagName, versionName)) {
+                    newVersionTag = release.tagName
+                    updateStatus = "发现新版本 ${release.tagName}"
+                    NotificationRepository.getInstance(context)
+                        .postAppUpdateNotification(release.tagName)
+                } else {
+                    updateStatus = "当前已是最新版本"
+                }
+            } catch (e: NoReleaseException) {
+                updateStatus = e.message ?: "仓库尚未发布版本"
+            } catch (_: Exception) {
+                updateStatus = "检查更新失败，请检查网络"
+            } finally {
+                isChecking = false
+            }
         }
     }
 
@@ -109,117 +155,198 @@ fun AboutScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp),
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(24.dp))
 
-            // App 图标
+            // App 图标与品牌信息
             if (appIcon != null) {
-                Image(
-                    bitmap = appIcon,
-                    contentDescription = "YuiTag 图标",
-                    modifier = Modifier
-                        .size(88.dp)
-                        .clip(RoundedCornerShape(22.dp))
-                )
+                Surface(
+                    shape = RoundedCornerShape(22.dp),
+                    tonalElevation = 2.dp,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh
+                ) {
+                    Image(
+                        bitmap = appIcon,
+                        contentDescription = "YuiTag 图标",
+                        modifier = Modifier
+                            .size(84.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                    )
+                }
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(14.dp))
 
             Text(
                 text = "YuiTag",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold
             )
 
             Spacer(Modifier.height(4.dp))
 
             Text(
-                text = "版本 $versionName",
+                text = "版本 $versionName ($versionCode)",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(4.dp))
 
-            InfoCard(
-                title = "发布地址",
-                content = "https://github.com/Reiyy/YuiTag",
-                onClick = { openUrl(context, GITHUB_REPO_URL) }
+            Text(
+                text = "Yuitwork Labs",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 24.dp)
             )
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(16.dp))
 
-            InfoCard("许可", "本项目采用 GPL-3.0 许可证。")
+            // 版本与更新
+            SettingsHeader("更新")
+            SettingsCard {
+                SettingsRow(
+                    icon = Icons.Outlined.Sync,
+                    title = "检查新版本",
+                    trailing = {
+                        if (isChecking) {
+                            Box(
+                                modifier = Modifier.size(36.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.5.dp
+                                )
+                            }
+                        } else {
+                            FilledTonalButton(
+                                onClick = { doCheckUpdate() },
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Text("检查", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    },
+                    onClick = { doCheckUpdate() }
+                )
+            }
 
-            Spacer(Modifier.height(24.dp))
+            // 开源与协议
+            SettingsHeader("开源相关")
+            SettingsCard {
+                SettingsRow(
+                    icon = Icons.Outlined.Code,
+                    title = "项目仓库",
+                    subtitle = "https://github.com/Reiyy/YuiTag",
+                    trailing = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    onClick = { openUrl(context, GITHUB_REPO_URL) }
+                )
+                HorizontalDivider()
+                SettingsRow(
+                    icon = Icons.Outlined.Gavel,
+                    title = "许可证",
+                    subtitle = "GNU General Public License v3.0",
+                    trailing = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    onClick = { openUrl(context, GPL_LICENSE_URL) }
+                )
+                HorizontalDivider()
+                SettingsRow(
+                    icon = Icons.AutoMirrored.Outlined.Article,
+                    title = "第三方开源库许可",
+                    trailing = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    },
+                    onClick = onNavigateToLicenses
+                )
+            }
 
-            // 版本更新
+            // 致谢
+            SettingsHeader("致谢")
+            SettingsCard {
+                SettingsRow(
+                    icon = Icons.Outlined.FavoriteBorder,
+                    title = "macless-haystack",
+                    subtitle = "macless-haystack 后端与 FindMy 协议参考",
+                    trailing = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    onClick = { openUrl(context, "https://gitee.com/lovelyelfpop/macless-haystack") }
+                )
+                HorizontalDivider()
+                SettingsRow(
+                    icon = Icons.Outlined.FavoriteBorder,
+                    title = "openhaystack-firmware",
+                    subtitle = "FindMy 固件编写与数据格式参考",
+                    trailing = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    onClick = { openUrl(context, "https://github.com/acalatrava/openhaystack-firmware") }
+                )
+                HorizontalDivider()
+                SettingsRow(
+                    icon = Icons.Outlined.FavoriteBorder,
+                    title = "starSchedule",
+                    subtitle = "魅族 Flyme 系统实况通知实现参考",
+                    trailing = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    onClick = { openUrl(context, "https://github.com/lightStarrr/starSchedule") }
+                )
+            }
+
+            Spacer(Modifier.height(32.dp))
+
+            // 底部版权信息
             Text(
-                text = "版本更新",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary
+                text = "Designed by Yuitwork in China",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "从 GitHub Release 检查是否有新版本",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                text = "K - ON! =w=",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
             )
-            Spacer(Modifier.height(8.dp))
-
-            OutlinedButton(
-                onClick = {
-                    if (isChecking) return@OutlinedButton
-                    isChecking = true
-                    updateStatus = "正在检查更新..."
-                    newVersionTag = null
-                    scope.launch {
-                        try {
-                            val release = checker.checkLatestRelease()
-                            if (release.tagName.isNotEmpty() && VersionUtils.isNewerVersion(release.tagName, versionName)) {
-                                newVersionTag = release.tagName
-                                updateStatus = "发现新版本 ${release.tagName}"
-                                NotificationRepository.getInstance(context)
-                                    .postAppUpdateNotification(release.tagName)
-                            } else {
-                                updateStatus = "当前已是最新版本"
-                            }
-                        } catch (e: NoReleaseException) {
-                            updateStatus = e.message ?: "仓库尚未发布版本"
-                        } catch (_: Exception) {
-                            updateStatus = "检查更新失败，请检查网络"
-                        } finally {
-                            isChecking = false
-                        }
-                    }
-                },
-                enabled = !isChecking,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    if (isChecking) "正在检查更新..." else "检查更新",
-                    modifier = Modifier.padding(vertical = 4.dp),
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-
-            if (updateStatus != null) {
-                Spacer(Modifier.height(8.dp))
-                val status = updateStatus!!
-                val isError = status.contains("失败") || status.contains("尚未")
-                Text(
-                    text = status,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (isError)
-                        MaterialTheme.colorScheme.error
-                    else
-                        MaterialTheme.colorScheme.primary
-                )
-            }
 
             Spacer(Modifier.height(32.dp))
         }
@@ -229,57 +356,21 @@ fun AboutScreen(
         AlertDialog(
             onDismissRequest = { newVersionTag = null },
             title = { Text("发现新版本") },
-            text = { Text("检测到新版本 ${newVersionTag}，请前往 GitHub 项目页查看更新内容与下载。") },
+            text = { Text("检测到新版本 $newVersionTag") },
             confirmButton = {
+                TextButton(onClick = {
+                    openUrl(context, "$GITHUB_REPO_URL/releases")
+                    newVersionTag = null
+                }) {
+                    Text("更新")
+                }
+            },
+            dismissButton = {
                 TextButton(onClick = { newVersionTag = null }) {
-                    Text("知道了")
+                    Text("关闭")
                 }
             }
         )
-    }
-}
-
-@Composable
-private fun InfoCard(
-    title: String,
-    content: String,
-    onClick: (() -> Unit)? = null
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = content,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Start
-                )
-            }
-            if (onClick != null) {
-                Spacer(Modifier.width(8.dp))
-                Icon(
-                    imageVector = Icons.Default.OpenInNew,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
     }
 }
 

@@ -14,6 +14,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.reiyy.yuitag.data.DeviceRepository
 import com.reiyy.yuitag.ui.screens.AboutScreen
+import com.reiyy.yuitag.ui.screens.OpenSourceLicensesScreen
 import com.reiyy.yuitag.ui.screens.DeviceConfigScreen
 import com.reiyy.yuitag.ui.screens.DetailScreen
 import com.reiyy.yuitag.ui.screens.DevOptionsScreen
@@ -62,6 +63,7 @@ object Routes {
     const val SETTINGS_MONITORED_DEVICES = "settings/monitored_devices"
     const val SETTINGS_SAFE_WIFI = "settings/safe_wifi"
     const val ABOUT = "about"
+    const val ABOUT_LICENSES = "about/licenses"
     const val LOCATION_HISTORY = "locationHistory/{uid}"
     const val TRAJECTORY = "trajectory/{uid}"
     const val MANUAL_IMPORT = "manualImport"
@@ -145,7 +147,6 @@ fun YuiTagNavGraph(
                 onNavigateToTrajectory = { uid -> navController.navigate(Routes.trajectoryRoute(uid)) },
                 onNavigateToDetail = { uid -> navController.navigate(Routes.detailRoute(uid)) },
                 onNavigateToManualImport = { navController.navigate(Routes.MANUAL_IMPORT) },
-                onNavigateToAbout = { navController.navigate(Routes.ABOUT) },
                 onNavigateToNotifications = { navController.navigate(Routes.NOTIFICATIONS) },
                 viewModel = mainViewModel
             )
@@ -160,7 +161,6 @@ fun YuiTagNavGraph(
                 onNavigateToDetail = { uid -> navController.navigate(Routes.detailRoute(uid)) },
                 onNavigateToSettings = { navController.navigate(Routes.SETTINGS) },
                 onNavigateToManualImport = { navController.navigate(Routes.MANUAL_IMPORT) },
-                onNavigateToAbout = { navController.navigate(Routes.ABOUT) },
                 onNavigateToNotifications = { navController.navigate(Routes.NOTIFICATIONS) },
                 viewModel = mainViewModel
             )
@@ -293,6 +293,13 @@ fun YuiTagNavGraph(
 
         composable(Routes.ABOUT) {
             AboutScreen(
+                onBack = { navController.popBackStack() },
+                onNavigateToLicenses = { navController.navigate(Routes.ABOUT_LICENSES) }
+            )
+        }
+
+        composable(Routes.ABOUT_LICENSES) {
+            OpenSourceLicensesScreen(
                 onBack = { navController.popBackStack() }
             )
         }

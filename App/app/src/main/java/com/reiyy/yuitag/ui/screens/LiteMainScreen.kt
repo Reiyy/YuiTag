@@ -28,7 +28,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Devices
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
@@ -117,7 +116,6 @@ fun LiteMainScreen(
     onNavigateToDetail: (String) -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToManualImport: () -> Unit = {},
-    onNavigateToAbout: () -> Unit = {},
     onNavigateToNotifications: () -> Unit = {},
     viewModel: MapMainViewModel
 ) {
@@ -249,14 +247,6 @@ fun LiteMainScreen(
                                     onNavigateToNotifications()
                                 },
                                 leadingIcon = { Icon(Icons.Default.Notifications, null) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("关于") },
-                                onClick = {
-                                    showTopMenu = false
-                                    onNavigateToAbout()
-                                },
-                                leadingIcon = { Icon(Icons.Default.Info, null) }
                             )
                             DropdownMenuItem(
                                 text = { Text("设置") },

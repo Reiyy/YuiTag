@@ -400,7 +400,7 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.Outlined.Info,
                     title = "关于",
-                    subtitle = "版本与更新",
+                    subtitle = "版本、开源许可与更新",
                     onClick = onNavigateToAbout
                 )
             }

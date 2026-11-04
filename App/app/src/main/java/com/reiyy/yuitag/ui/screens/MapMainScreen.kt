@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Notifications
@@ -130,7 +129,6 @@ fun MapMainScreen(
     onNavigateToTrajectory: (String) -> Unit,
     onNavigateToDetail: (String) -> Unit,
     onNavigateToManualImport: () -> Unit = {},
-    onNavigateToAbout: () -> Unit = {},
     onNavigateToNotifications: () -> Unit = {},
     viewModel: MapMainViewModel = viewModel()
 ) {
@@ -719,14 +717,6 @@ fun MapMainScreen(
                                 onNavigateToNotifications()
                             },
                             leadingIcon = { Icon(Icons.Default.Notifications, null) }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("关于") },
-                            onClick = {
-                                showTopMenu = false
-                                onNavigateToAbout()
-                            },
-                            leadingIcon = { Icon(Icons.Default.Info, null) }
                         )
                         DropdownMenuItem(
                             text = { Text("设置") },
