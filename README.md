@@ -5,7 +5,7 @@
 
 ## 简介 
 
-**YuiTag**是一个可以帮你在忘记东西放在哪时寻找物品的蓝牙寻物Tag。  
+**YuiTag**是一个可以帮你在忘记东西放哪时寻找物品的蓝牙寻物Tag。  
 通过**YuiTag App**在连接设备后可以发送响铃指令通过蜂鸣器声音寻找Tag。  
 同时还兼容 **FindMy** 网络，并实现了基于时间的无限密钥派生，能够在室内寻物的基础上提供一定的全球定位能力。  
 配套**YuiTag App**支持个性化配置，包括查找页面主题，Tag图标，蓝牙广播间隔，FindMy密钥轮换时间等配置。  
@@ -23,6 +23,7 @@ Starlight支持**无限**动态密钥的FindMy网络
 ## 演示图
 ![主页和Tag页](/tools/Documentation/img/主页和Tag页.png)  
 
+**GIF图，加载可能需要一段时间，可能需要手动触发播放**
 <p align="center">
   <img src="tools/Documentation/img/查找页.gif" width="49%" alt="查找页" />
   <img src="tools/Documentation/img/轨迹页.gif" width="49%" alt="轨迹页" />
