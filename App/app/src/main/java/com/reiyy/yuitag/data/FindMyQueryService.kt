@@ -46,6 +46,7 @@ class FindMyQueryService(private val context: Context) {
         private const val KEY_HEALTH_NORMAL_DAYS = "health_normal_days"
         private const val KEY_LITE_MODE = "lite_mode_enabled"
         private const val KEY_DEBUG_MODE = "debug_mode_enabled"
+        private const val KEY_AUTO_REFRESH_ENABLED = "auto_refresh_enabled"
     }
 
     private val prefs: SharedPreferences =
@@ -110,6 +111,10 @@ class FindMyQueryService(private val context: Context) {
     /** 调试模式：开启后文件日志才记录 V/D 级（含密钥等敏感信息）日志 */
     fun isDebugModeEnabled(): Boolean = prefs.getBoolean(KEY_DEBUG_MODE, false)
     fun setDebugModeEnabled(enabled: Boolean) { prefs.edit().putBoolean(KEY_DEBUG_MODE, enabled).apply() }
+
+    /** 自动刷新：关闭后冷启动与进入设备详情页时不自动查询位置，仅允许用户手动触发 */
+    fun isAutoRefreshEnabled(): Boolean = prefs.getBoolean(KEY_AUTO_REFRESH_ENABLED, true)
+    fun saveAutoRefreshEnabled(enabled: Boolean) { prefs.edit().putBoolean(KEY_AUTO_REFRESH_ENABLED, enabled).apply() }
 
     /**
      * 设置页测试连接：探测主/备后端可达性，返回测试结果说明。

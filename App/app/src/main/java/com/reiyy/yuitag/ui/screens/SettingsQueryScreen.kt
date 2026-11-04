@@ -13,6 +13,7 @@ import androidx.compose.material.icons.outlined.HealthAndSafety
 import androidx.compose.material.icons.outlined.Numbers
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -37,6 +38,7 @@ import com.reiyy.yuitag.data.local.AddressLevel
 import com.reiyy.yuitag.ui.components.SettingsCard
 import com.reiyy.yuitag.ui.components.SettingsHeader
 import com.reiyy.yuitag.ui.components.SettingsRadioPreference
+import com.reiyy.yuitag.ui.components.SettingsSwitchRow
 import com.reiyy.yuitag.ui.components.SettingsTextPreference
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,6 +46,8 @@ import com.reiyy.yuitag.ui.components.SettingsTextPreference
 fun SettingsQueryScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val service = remember { FindMyQueryService(context) }
+
+    var autoRefreshEnabled by remember { mutableStateOf(service.isAutoRefreshEnabled()) }
 
     var extensionType by remember { mutableStateOf(service.getExtensionType()) }
     var extensionValueText by remember { mutableStateOf(service.getExtensionValue().toString()) }
@@ -77,6 +81,20 @@ fun SettingsQueryScreen(onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = 24.dp)
         ) {
+            SettingsHeader("自动刷新")
+            SettingsCard {
+                SettingsSwitchRow(
+                    icon = Icons.Outlined.Sync,
+                    title = "自动刷新位置",
+                    subtitle = "冷启动主页及进入设备详情页时自动查询最新位置",
+                    checked = autoRefreshEnabled,
+                    onCheckedChange = {
+                        autoRefreshEnabled = it
+                        service.saveAutoRefreshEnabled(it)
+                    }
+                )
+            }
+
             SettingsHeader("查询范围扩展")
             SettingsCard {
                 SettingsRadioPreference(

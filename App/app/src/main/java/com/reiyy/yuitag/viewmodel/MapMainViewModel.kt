@@ -863,6 +863,7 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun refreshLocation(uid: String) {
+        if (!findMyQueryService.isAutoRefreshEnabled()) return
         if (_uiState.value.deviceQueryingUids.contains(uid)) return
         viewModelScope.launch {
             _locationQueryingState.value = true
@@ -885,6 +886,7 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun queryAllDeviceLocations() {
+        if (!findMyQueryService.isAutoRefreshEnabled()) return
         val url = findMyQueryService.getEndpointUrl()
         if (url.isBlank()) return
         // 重入保护，进行中直接跳过
