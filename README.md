@@ -1,7 +1,7 @@
 # YuiTag
-[<img src="https://img.shields.io/github/license/reiyy/yuitag?color=brightgreen">](https://raw.githubusercontent.com/Reiyy/YuiTag/main/LICENSE)
-[<img src="https://img.shields.io/github/v/release/reiyy/yuitag?color=brightgreen&include_prereleases">](https://github.com/Reiyy/YuiTag/releases)
-[<img src="https://img.shields.io/github/downloads/reiyy/yuitag/total.svg">](https://github.com/Reiyy/YuiTag/releases)
+[![License](https://img.shields.io/github/license/Reiyy/YuiTag?color=brightgreen)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/Reiyy/YuiTag?color=brightgreen&include_prereleases)](https://github.com/Reiyy/YuiTag/releases)
+[![Downloads](https://img.shields.io/github/downloads/Reiyy/YuiTag/total)](https://github.com/Reiyy/YuiTag/releases)
 
 ## 简介 
 
@@ -17,8 +17,8 @@ Starlight支持**无限**动态密钥的FindMy网络
 
 ## 兼容性
 
-<img src="https://img.shields.io/badge/Android_12+-34A853?logo=android&logoColor=white" alt="Android 12+" />   
-<img src="https://img.shields.io/badge/BLE_5.0+-0082FC?logo=bluetooth&logoColor=white" alt="BLE 5.0+" /> 
+![Android 12+](https://img.shields.io/badge/Android_12+-34A853?logo=android&logoColor=white)
+![BLE 5.0+](https://img.shields.io/badge/BLE_5.0+-0082FC?logo=bluetooth&logoColor=white)
 
 ## 演示图
 ![主页和Tag页](/tools/Documentation/img/主页和Tag页.png)  
@@ -52,54 +52,45 @@ Starlight支持**无限**动态密钥的FindMy网络
 前往 [Github 发布页](https://github.com/Reiyy/YuiTag/releases)  
 
 ## 注意事项/其他
-我并非专业人士，本项目仅为我业余开发。  
-本项目代码几乎100%由AI编写，虽所有决策和方案设计由人类完成，且已经过人工复核功能的可用性，但对于可靠性，长期运行稳定性以及是否有潜在功能异常问题仍不能保证。  
-**请勿依赖本Tag为你寻找重要物品！请勿将其作为你获知任何重要物品位置的唯一途径！**  
-如你有查找重要物品的需求，请使用正版的商业Tag产品，如苹果AirTag，小米Tag，华为Tag，三星Tag，谷歌PixelTag等产品！  
 
-本项目的主要设计目的是以室内寻物为主，因我和我家人经常找不到东西，故设计了此Tag，用于和家中各种物品放在一起，通过蓝牙信号强度大致判断区域范围，再使用蜂鸣器响铃功能精确定位。  
-FindMy功能并非是本Tag的主要支持功能，  
-初版基于BG22芯片开发，FindMy功能是看到芯片Flash还剩不少才加上，之前在用[lovelyelfpop/macless-haystack](https://gitee.com/lovelyelfpop/macless-haystack)项目的DIY FindMy Tag，但固定的一组密钥用一段时间后定位刷新会变少，以及缺少关键的响铃功能导致最终还是找不到东西到底在哪。
-由于我的Tag本身为了接收响铃指令已经是可连接设计，也已经有了App，故直接用了基于时间的方法来实现无限密钥派生。  
-针对资源紧张的芯片(如nRF52810)，这些芯片受限于RAM或FLASH无法做到自身进行密钥派生只能使用预生成的固定密钥组，但得益于可连接设计，YuiTag支持通过App随时更换一组新的密钥，当发现定位更新变少时可以直接生成一组新的密钥传输给Tag，而无需重新烧录固件。  
+> [!CAUTION]
+> **请勿依赖本Tag为你寻找重要物品！** **请勿将其作为获知任何重要物品位置的唯一途径！** 如有贵重物品防丢需求，请选购成熟商业产品（如 Apple AirTag、小米 Tag、华为 Tag、三星 Tag等）。  
+> **AI警告**：本项目代码主要由AI编写，虽所有决策和方案设计由人类完成且经过复核，但对于可靠性、长期运行稳定性及潜在边界异常仍不能保证。
 
-关于无限密钥派生的原理：  
-Tag和App均持有一个相同的FindMy种子，随后App向Tag发送当前时间戳进行校时，Tag将自身定时器时间与校时时间锚定，之后双方即可无需沟通各自通过相同的种子和当前时间派生出一致的广播密钥。
+> [!NOTE]
+> 本项目主要用于**室内寻物**。FindMy为辅助功能，其实时性与准确性受限于周围 Apple 设备密度；同时 DIY 硬件缺乏专业射频调校，天线性能无法与成熟商业产品相比，存在信号覆盖距离可能较短的限制。
 
-Tag时间采用**乐观恢复机制**，即默认为每次断电的时间应该较短，比如几分钟换个电池，一般不超过5分钟。   
-每5分钟Tag会将当前时间覆写回校时时间戳，Tag断电后时间最多会偏差5分钟，再加上换电池操作的时间，最终总偏差一般不会超过10分钟，加上App端的查询范围扩展的补偿机制，也能正确的获取到所有定位数据，Tag自身的时钟漂移在也可通过查询范围扩展补偿，每次进入AppTag详情页时会自动连接Tag，连接成功会自动进行校时，除非是超长长长期不用的Tag否则时间偏差应能控制在可接受的范围。  
-查询范围扩展也为可自定义配置的参数，可根据实际的使用习惯进行设置。  
+* **无限派生密钥**：Tag 与 App 预先共享同一个 FindMy 种子。App 连接 Tag 时同步当前时间戳并与其锚定，之后双方可各自基于相同的时间计算出一致的广播密钥。
+* **低配芯片兼容（如 nRF52810）**：针对 Flash/RAM 不足、无法自主计算动态派生的芯片，得益于 App 的可连接设计，当发现定位刷新变少时，可直接通过 App 下发写入一组全新的预生成密钥组，无需重新烧录固件。
+* **乐观恢复**：日常换电池等断电场景通常只有几分钟，Tag 每 5 分钟自动将当前时间覆写回 Flash 时间戳。重新上电后时间最大偏差通常不会超过 10 分钟。
+* **补偿策略**：
+  * **查询范围扩展**：App 端提供了可配置的查询扩展参数，可补偿断电偏差与晶振走时漂移。
+  * **自动校时**：每次进入 App 的 Tag 详情页时会自动连接设备并同步时间。
 
-FindMy的定位信息是否实时和准确取决于周边Apple设备的密度，以及Tag硬件的射频性能。  
-我没有专业的射频测试设备，无法进行准确的PCB天线射频性能调校，故该DIY Tag硬件的射频性能无法与成熟的经过专门调校的商业产品比较，射频性能不佳会导致信号无法传输的更远，也就降低了能被周围Apple设备发现的机会，进而影响定位数据的实时性。
+## 路线图
 
-## 功能
-**已实现：**  
-基于蓝牙信号的大致范围定位  
-基于蜂鸣器响铃的近场精确声音定位  
-FindMy兼容提供一定的全球定位查找能力  
-多参数可自定义的配套查找App  
-支持OTA固件更新(Sparks不支持)  
-遗落提醒(实验性)
-实况通知(仅Flyme支持)
-
-**待实现：**  
-[固件]添加CH59x芯片支持  
-[硬件]添加CH59x芯片PCB设计  
-[App]添加CH59x平台OTA支持  
-[硬件]添加使用更大容量电池的PCB设计  
-[App&固件]可自定义蜂鸣器响铃旋律  
-[App]将FindMy查询集成到App从而无需依赖任何第三方自建后端
+- [x] 基于蓝牙信号的近场大致定位  
+- [x] 基于蜂鸣器响铃的近场精确声音定位 
+- [x] 兼容FindMy网络并支持无限密钥派生
+- [x] 可个性化配置的查找App  
+- [x] 支持OTA固件更新（仅Starlight）
+- [x] 遗落提醒(实验性)与魅族Flyme实况通知
+- [ ] 适配沁恒 CH59x 芯片
+- [ ] 设计更大容量电池的硬件
+- [ ] 支持自定义蜂鸣器响铃旋律
+- [ ] App集成FindMy数据查询(无需自建第三方后端)
+- [ ] 更完善的遗落提醒
+- [ ] iOS端App移植
 
 ## 参与的模型
-<img src="https://img.shields.io/badge/DeepSeek_V4_Pro-4D6BFE?logo=deepseek&logoColor=white" alt="DeepSeek V4 Pro" />
-<img src="https://img.shields.io/badge/DeepSeek_V4_Flash-4D6BFE?logo=deepseek&logoColor=white" alt="DeepSeek V4 Flash" />
-<img src="https://img.shields.io/badge/Gemini_3.8_Flash-8E75B2?logo=googlegemini&logoColor=white" alt="Gemini 3.8 Flash" />
-<img src="https://img.shields.io/badge/Gemini_4_Argon-8E75B2?logo=googlegemini&logoColor=white" alt="Gemini 4 Argon" />
-<img src="https://img.shields.io/badge/GLM--5.3--Flash-134CFF" alt="GLM-5.3-Flash" />
-<img src="https://img.shields.io/badge/GLM--5.3-134CFF" alt="GLM-5.3" />
-<img src="https://img.shields.io/badge/Claude_Opus_4.6-D97757?logo=claude&logoColor=white" alt="Claude Opus 4.6" />
-<img src="https://img.shields.io/badge/Kimi_K3-000000?logo=kimi&logoColor=white" alt="Kimi K3" />
+![DeepSeek V4 Pro](https://img.shields.io/badge/DeepSeek_V4_Pro-4D6BFE?logo=deepseek&logoColor=white)
+![DeepSeek V4 Flash](https://img.shields.io/badge/DeepSeek_V4_Flash-4D6BFE?logo=deepseek&logoColor=white)
+![Gemini 3.8 Flash](https://img.shields.io/badge/Gemini_3.8_Flash-8E75B2?logo=googlegemini&logoColor=white)
+![Gemini 4 Argon](https://img.shields.io/badge/Gemini_4_Argon-8E75B2?logo=googlegemini&logoColor=white)
+![GLM-5.3-Flash](https://img.shields.io/badge/GLM--5.3--Flash-134CFF)
+![GLM-5.3](https://img.shields.io/badge/GLM--5.3-134CFF)
+![Claude Opus 4.6](https://img.shields.io/badge/Claude_Opus_4.6-D97757?logo=claude&logoColor=white)
+![Kimi K3](https://img.shields.io/badge/Kimi_K3-000000?logo=kimi&logoColor=white)
 
 ## 致谢
 
@@ -111,11 +102,9 @@ FindMy兼容提供一定的全球定位查找能力
 
 YuiTag 采用 **GNU General Public License v3 (GPL-3)** 许可证 (https://www.gnu.org/licenses/gpl-3.0.html).
 
-## 
-</div>
+---
 
 <div align="center">
-K - ON!
-
-<img src="tools\Documentation\img\YUI.png" width="100"/>
+  <p>K - ON!</p>
+  <img src="tools/Documentation/img/YUI.png" width="100" />
 </div>
