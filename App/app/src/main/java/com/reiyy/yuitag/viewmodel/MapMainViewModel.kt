@@ -17,6 +17,9 @@ import com.reiyy.yuitag.data.DeviceRepository
 import com.reiyy.yuitag.data.FindMyQueryService
 import com.reiyy.yuitag.data.LocationQueryHelper
 import com.reiyy.yuitag.data.NoEndpointException
+import com.reiyy.yuitag.data.AppleSessionExpiredException
+import com.reiyy.yuitag.data.BackendAuthException
+import com.reiyy.yuitag.data.BackendServerException
 import com.reiyy.yuitag.data.NotificationRepository
 import com.reiyy.yuitag.data.SeparationAlertPreferences
 import com.reiyy.yuitag.data.YuiTagDevice
@@ -864,6 +867,10 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
 
     fun refreshLocation(uid: String) {
         if (!findMyQueryService.isAutoRefreshEnabled()) return
+        if (findMyQueryService.isInCooldown()) {
+            FileLog.d("MapMainVM", "跳过自动刷新 $uid: 后端处于退避冷却期 (${findMyQueryService.getLastFailureReason()})")
+            return
+        }
         if (_uiState.value.deviceQueryingUids.contains(uid)) return
         viewModelScope.launch {
             _locationQueryingState.value = true
@@ -887,6 +894,10 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
 
     private fun queryAllDeviceLocations() {
         if (!findMyQueryService.isAutoRefreshEnabled()) return
+        if (findMyQueryService.isInCooldown()) {
+            FileLog.d("MapMainVM", "跳过冷启动全量查询: 后端处于退避冷却期 (${findMyQueryService.getLastFailureReason()})")
+            return
+        }
         val url = findMyQueryService.getEndpointUrl()
         if (url.isBlank()) return
         // 重入保护，进行中直接跳过
@@ -913,8 +924,18 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
                     } catch (e: NoEndpointException) {
                         FileLog.w("MapMainVM", "Auto query: ${e.message}")
                         break
+                    } catch (e: AppleSessionExpiredException) {
+                        FileLog.w("MapMainVM", "Auto query stopped (AppleID expired): ${e.message}")
+                        break
+                    } catch (e: BackendAuthException) {
+                        FileLog.w("MapMainVM", "Auto query stopped (Auth failed): ${e.message}")
+                        break
+                    } catch (e: BackendServerException) {
+                        FileLog.w("MapMainVM", "Auto query stopped (Server error ${e.statusCode}): ${e.message}")
+                        break
                     } catch (e: IOException) {
-                        FileLog.w("MapMainVM", "Auto query ${entity.uid}: ${e.message}")
+                        FileLog.w("MapMainVM", "Auto query ${entity.uid} failed (${e.message}), aborting remaining devices")
+                        break
                     }
                 }
             } catch (e: Exception) {
@@ -953,6 +974,12 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
                 }
             } catch (e: NoEndpointException) {
                 Toast.makeText(getApplication(), e.message ?: "未配置后端地址", Toast.LENGTH_SHORT).show()
+            } catch (e: AppleSessionExpiredException) {
+                Toast.makeText(getApplication(), "AppleID 登录失效: 请在后端服务重新登录", Toast.LENGTH_LONG).show()
+            } catch (e: BackendAuthException) {
+                Toast.makeText(getApplication(), e.message ?: "后端认证失败 (HTTP 401)", Toast.LENGTH_LONG).show()
+            } catch (e: BackendServerException) {
+                Toast.makeText(getApplication(), "后端服务异常 (HTTP ${e.statusCode})", Toast.LENGTH_LONG).show()
             } catch (e: IOException) {
                 Toast.makeText(getApplication(), "网络请求失败: ${e.message}", Toast.LENGTH_LONG).show()
             } catch (e: Exception) {

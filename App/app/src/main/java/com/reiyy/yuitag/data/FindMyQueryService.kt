@@ -47,6 +47,43 @@ class FindMyQueryService(private val context: Context) {
         private const val KEY_LITE_MODE = "lite_mode_enabled"
         private const val KEY_DEBUG_MODE = "debug_mode_enabled"
         private const val KEY_AUTO_REFRESH_ENABLED = "auto_refresh_enabled"
+
+        // --- 错误退避与熔断策略 ---
+        /** 普通网络异常 / 5xx 服务端错误退避冷却时间（60秒） */
+        private const val COOLDOWN_NORMAL_MS = 60_000L
+        /** 致命错误（541 AppleID失效 / 401 认证失败）退避冷却时间（5分钟） */
+        private const val COOLDOWN_FATAL_MS = 300_000L
+
+        @Volatile
+        private var cooldownUntilTimestamp: Long = 0L
+
+        @Volatile
+        private var lastFailureReason: String? = null
+
+        /** 当前是否处于后端异常退避冷却期（供自动刷新判断，跳过无脑发请求） */
+        fun isInCooldown(): Boolean = System.currentTimeMillis() < cooldownUntilTimestamp
+
+        fun getLastFailureReason(): String? = lastFailureReason
+
+        /** 记录异常并启动退避冷却 */
+        fun recordFailure(e: Throwable) {
+            val duration = when (e) {
+                is AppleSessionExpiredException, is BackendAuthException -> COOLDOWN_FATAL_MS
+                else -> COOLDOWN_NORMAL_MS
+            }
+            cooldownUntilTimestamp = System.currentTimeMillis() + duration
+            lastFailureReason = e.message ?: e.javaClass.simpleName
+            FileLog.w(TAG, "后端进入退避冷却: ${duration / 1000}秒, 原因: $lastFailureReason")
+        }
+
+        /** 重置冷却状态（请求成功或手动测试通过时调用） */
+        fun resetCooldown() {
+            if (cooldownUntilTimestamp > 0L) {
+                cooldownUntilTimestamp = 0L
+                lastFailureReason = null
+                FileLog.d(TAG, "后端退避冷却已重置")
+            }
+        }
     }
 
     private val prefs: SharedPreferences =
@@ -116,6 +153,10 @@ class FindMyQueryService(private val context: Context) {
     fun isAutoRefreshEnabled(): Boolean = prefs.getBoolean(KEY_AUTO_REFRESH_ENABLED, true)
     fun saveAutoRefreshEnabled(enabled: Boolean) { prefs.edit().putBoolean(KEY_AUTO_REFRESH_ENABLED, enabled).apply() }
 
+    fun isInCooldown(): Boolean = Companion.isInCooldown()
+    fun getLastFailureReason(): String? = Companion.getLastFailureReason()
+    fun resetCooldown() = Companion.resetCooldown()
+
     /**
      * 设置页测试连接：探测主/备后端可达性，返回测试结果说明。
      * 任何 HTTP 响应（含 4xx/5xx）均视为服务器可达；连接超时/拒绝视为失败。
@@ -129,12 +170,16 @@ class FindMyQueryService(private val context: Context) {
         var primaryErr: String? = null
         if (primary != null) {
             val err = probeReachable(primary)
-            if (err == null) return@withContext "主后端连接正常"
+            if (err == null) {
+                resetCooldown()
+                return@withContext "主后端连接正常"
+            }
             primaryErr = err
         }
         if (fallback != null) {
             val err = probeReachable(fallback)
             if (err == null) {
+                resetCooldown()
                 return@withContext if (primaryErr != null) "主后端失败（$primaryErr），备用后端连接正常" else "备用后端连接正常"
             }
         }
@@ -253,16 +298,28 @@ class FindMyQueryService(private val context: Context) {
                     chunkOk = true
                 } catch (e: NoEndpointException) {
                     throw e
+                } catch (e: AppleSessionExpiredException) {
+                    // 致命错误：无需重试分片，直接抛出中断
+                    throw e
+                } catch (e: BackendAuthException) {
+                    // 致命认证错误：直接抛出中断
+                    throw e
                 } catch (e: IOException) {
                     FileLog.w(TAG, "分片请求失败(第$attempts 次): ${e.message}")
                     lastError = e
-                    if (attempts <= retryCount) delay(retryDelayMs)
+                    if (attempts <= retryCount) {
+                        // 指数退避：每次重试间隔翻倍 (retryDelayMs * 2^(attempts-1))
+                        val backoffMs = retryDelayMs * (1L shl (attempts - 1))
+                        delay(backoffMs)
+                    }
                 }
             }
-        }
 
-        if (batchResults.isEmpty() && lastError != null) {
-            throw IOException("所有分片请求均失败", lastError)
+            // 【关键短路保护】：若当前分片用尽重试依然失败，表明后端服务或网络不可用，
+            // 立即抛出异常终止后续所有分片，杜绝无脑继续发送下一个分片！
+            if (!chunkOk) {
+                throw (lastError ?: IOException("分片请求失败，已终止后续查询"))
+            }
         }
 
         data class DecryptedItem(
@@ -372,19 +429,34 @@ class FindMyQueryService(private val context: Context) {
             throw NoEndpointException("未配置后端地址，请先在设置中配置")
         }
 
-        var lastError: Exception? = null
+        var lastError: IOException? = null
         val urls = listOfNotNull(primaryUrl, fallbackUrl)
 
         for (url in urls) {
             try {
-                return doFetch(url, ids)
+                val results = doFetch(url, ids)
+                resetCooldown()
+                return results
+            } catch (e: AppleSessionExpiredException) {
+                FileLog.w(TAG, "请求 $url 失败 (AppleID失效): ${e.message}")
+                recordFailure(e)
+                lastError = e
+            } catch (e: BackendAuthException) {
+                FileLog.w(TAG, "请求 $url 失败 (认证错误): ${e.message}")
+                recordFailure(e)
+                lastError = e
+            } catch (e: BackendServerException) {
+                FileLog.w(TAG, "请求 $url 失败 (服务端错误 ${e.statusCode}): ${e.message}")
+                recordFailure(e)
+                lastError = e
             } catch (e: IOException) {
                 FileLog.w(TAG, "请求 $url 失败: ${e.message}")
+                recordFailure(e)
                 lastError = e
             }
         }
 
-        throw IOException("所有后端地址请求均失败", lastError)
+        throw (lastError ?: IOException("所有后端地址请求均失败"))
     }
 
     private fun doFetch(baseUrl: String, ids: List<String>): List<JSONObject> {
@@ -416,9 +488,20 @@ class FindMyQueryService(private val context: Context) {
             val responseCode = conn.responseCode
             if (responseCode != 200) {
                 val errorBody = try {
-                    conn.errorStream?.use { it.readBytes() }?.toString(Charsets.UTF_8) ?: ""
+                    conn.errorStream?.use { it.readBytes() }?.toString(Charsets.UTF_8)?.trim() ?: ""
                 } catch (_: Exception) { "" }
-                throw IOException("服务器返回 $responseCode${if (errorBody.isNotEmpty()) ": $errorBody" else ""}")
+
+                when (responseCode) {
+                    541 -> throw AppleSessionExpiredException(
+                        if (errorBody.isNotEmpty()) errorBody else "AppleID 登录失效，请在后端服务器移除 auth.json 并重新登录"
+                    )
+                    401 -> throw BackendAuthException("后端认证失败 (HTTP 401)，请检查用户名和密码")
+                    in 500..599 -> throw BackendServerException(
+                        responseCode,
+                        "后端服务异常 (HTTP $responseCode)${if (errorBody.isNotEmpty()) ": $errorBody" else ""}"
+                    )
+                    else -> throw IOException("服务器返回 $responseCode${if (errorBody.isNotEmpty()) ": $errorBody" else ""}")
+                }
             }
 
             val responseBody = conn.inputStream.use { it.readBytes() }.toString(Charsets.UTF_8)
@@ -436,4 +519,21 @@ class FindMyQueryService(private val context: Context) {
     }
 }
 
-class NoEndpointException(message: String) : Exception(message)
+/** 未配置后端地址 */
+class NoEndpointException(message: String) : IOException(message)
+
+/** AppleID 登录失效（后端返回 541） */
+class AppleSessionExpiredException(
+    message: String = "AppleID 登录失效，请在后端服务器移除 auth.json 并重新登录"
+) : IOException(message)
+
+/** 后端 Basic Auth 认证失败（后端返回 401） */
+class BackendAuthException(
+    message: String = "后端认证失败 (HTTP 401)，请检查用户名和密码"
+) : IOException(message)
+
+/** 后端返回 5xx 服务端错误 */
+class BackendServerException(
+    val statusCode: Int,
+    message: String
+) : IOException(message)

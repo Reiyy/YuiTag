@@ -10,6 +10,9 @@ import com.reiyy.yuitag.data.FindMyQueryService
 import com.reiyy.yuitag.data.GeocodeBackfillHelper
 import com.reiyy.yuitag.data.LocationQueryHelper
 import com.reiyy.yuitag.data.NoEndpointException
+import com.reiyy.yuitag.data.AppleSessionExpiredException
+import com.reiyy.yuitag.data.BackendAuthException
+import com.reiyy.yuitag.data.BackendServerException
 import com.reiyy.yuitag.data.local.LocationEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -110,6 +113,12 @@ class LocationHistoryViewModel(application: Application) : AndroidViewModel(appl
                 }
             } catch (e: NoEndpointException) {
                 Toast.makeText(getApplication(), e.message ?: "未配置后端地址", Toast.LENGTH_SHORT).show()
+            } catch (e: AppleSessionExpiredException) {
+                Toast.makeText(getApplication(), "AppleID 登录失效: 请在后端服务重新登录", Toast.LENGTH_LONG).show()
+            } catch (e: BackendAuthException) {
+                Toast.makeText(getApplication(), e.message ?: "后端认证失败 (HTTP 401)", Toast.LENGTH_LONG).show()
+            } catch (e: BackendServerException) {
+                Toast.makeText(getApplication(), "后端服务异常 (HTTP ${e.statusCode})", Toast.LENGTH_LONG).show()
             } catch (e: IOException) {
                 Toast.makeText(getApplication(), "网络请求失败: ${e.message}", Toast.LENGTH_LONG).show()
             } catch (e: Exception) {
