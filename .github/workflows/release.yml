@@ -32,42 +32,81 @@ jobs:
         working-directory: ./App
         run: ./gradlew assembleRelease
 
-      # 正式版本签名
-      - name: Sign Release APK
-        uses: r0adkll/sign-android-release@v1
-        id: sign_app
-        with:
-          releaseDirectory: App/app/build/outputs/apk/release
-          signingKey: ${{ secrets.SIGNING_KEY }}
-          alias: ${{ secrets.KEY_ALIAS }}
-          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
-
-      # 归集并重命名已签名的 Release APK
-      - name: Prepare Release Assets
+      # 签名、对齐与归集 Release APK
+      - name: Sign & Prepare Release Assets
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           mkdir -p release-assets
 
-          # 获取签名后的 APK 文件路径
-          SIGNED_APK="${{ steps.sign_app.outputs.signedFiles }}"
-          if [ -z "$SIGNED_APK" ] || [ ! -f "$SIGNED_APK" ]; then
-            SIGNED_APK=$(find App/app/build/outputs/apk/release -name "*.apk" ! -name "*-unsigned.apk" | head -n 1)
-          fi
-
-          if [ -n "$SIGNED_APK" ] && [ -f "$SIGNED_APK" ]; then
-            cp "$SIGNED_APK" "release-assets/YuiTag-App-${{ github.ref_name }}.apk"
-            echo "Prepared asset: release-assets/YuiTag-App-${{ github.ref_name }}.apk"
-          else
-            echo "Error: Signed APK not found! Check signing step logs."
+          # 1. 检查签名机密并还原 keystore 证书文件
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "Error: GitHub Secret 'SIGNING_KEY' is not set or empty!"
             exit 1
           fi
+          echo "$SIGNING_KEY" | base64 -d > release.jks
+          if [ ! -s release.jks ]; then
+            echo "Error: release.jks is empty after base64 decode! Please check SIGNING_KEY."
+            exit 1
+          fi
+
+          # 密钥密码回退策略（若 KEY_PASSWORD 未单独设置，则默认使用 KEYSTORE_PASSWORD）
+          KEY_PASS="${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
+
+          # 2. 定位 Gradle 编译生成的 APK
+          RAW_APK=$(find App/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -z "$RAW_APK" ] || [ ! -f "$RAW_APK" ]; then
+            echo "Error: Gradle release APK not found in App/app/build/outputs/apk/release!"
+            exit 1
+          fi
+          echo "Found APK: $RAW_APK"
+
+          # 3. 动态定位系统最新的 Android SDK Build-Tools (包含 zipalign 与 apksigner)
+          ANDROID_SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          BUILD_TOOLS_DIR=$(ls -d ${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}/build-tools/* | sort -V | tail -n 1)
+          echo "Using Android Build Tools: $BUILD_TOOLS_DIR"
+          ZIPALIGN="$BUILD_TOOLS_DIR/zipalign"
+          APKSIGNER="$BUILD_TOOLS_DIR/apksigner"
+          chmod +x "$ZIPALIGN" "$APKSIGNER" 2>/dev/null || true
+
+          # 4. 执行 zipalign 4字节对齐
+          ALIGNED_APK="aligned-temp.apk"
+          if [ -f "$ZIPALIGN" ]; then
+            echo "Running zipalign..."
+            "$ZIPALIGN" -f -p 4 "$RAW_APK" "$ALIGNED_APK"
+          else
+            echo "Warning: zipalign not found, using raw APK"
+            cp "$RAW_APK" "$ALIGNED_APK"
+          fi
+
+          # 5. 执行 apksigner 写入正式签名
+          OUT_APK="release-assets/YuiTag-App-${{ github.ref_name }}.apk"
+          echo "Running apksigner..."
+          "$APKSIGNER" sign \
+            --ks release.jks \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass "pass:$KEYSTORE_PASSWORD" \
+            --key-pass "pass:$KEY_PASS" \
+            --out "$OUT_APK" \
+            "$ALIGNED_APK"
+
+          # 6. 验证签名合规性
+          echo "Verifying signed APK..."
+          "$APKSIGNER" verify --verbose "$OUT_APK"
+
+          # 7. 清理敏感临时文件
+          rm -f release.jks "$ALIGNED_APK"
+          echo "Prepared asset: $OUT_APK"
 
       # 创建 GitHub Release 草稿并上传已签名的 APK
       - name: Create GitHub Release (Draft)
         uses: softprops/action-gh-release@v2
         with:
           draft: true
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'alpha') }}
           generate_release_notes: true
           files: |
             release-assets/*.apk
