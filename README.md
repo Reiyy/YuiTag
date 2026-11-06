@@ -76,10 +76,10 @@ Starlight支持**无限**动态密钥的FindMy网络
 - [x] 可个性化配置的查找App  
 - [x] 支持OTA固件更新（仅Starlight）
 - [x] 遗落提醒(实验性)与魅族Flyme实况通知
+- [x] App集成FindMy数据查询(脱离自建后端依赖)
 - [ ] 适配沁恒 CH59x 芯片
 - [ ] 设计更大容量电池的硬件
 - [ ] 支持自定义蜂鸣器响铃旋律
-- [ ] App集成FindMy数据查询(脱离自建后端依赖)
 - [ ] 更完善的遗落提醒
 - [ ] iOS端App移植
 
@@ -98,6 +98,8 @@ Starlight支持**无限**动态密钥的FindMy网络
 - [lovelyelfpop/macless-haystack](https://gitee.com/lovelyelfpop/macless-haystack): 提供macless-haystack后端，和FindMy实现参考
 - [acalatrava/openhaystack-firmware](https://github.com/acalatrava/openhaystack-firmware): 提供FindMy数据格式和固件编写参考
 - [lightStarrr/starSchedule](https://github.com/lightStarrr/starSchedule): 提供魅族Flyme实况通知的实现参考
+- [tieo/TagHistory](https://github.com/tieo/TagHistory): 提供本机直连位置查询与协议交互参考，以及JNI运行库
+- [sacca97/os-findmy-e](https://github.com/sacca97/os-findmy-e): 提供CoreADI提取方案与ADI模拟实现参考
 
 ## 许可证
 
