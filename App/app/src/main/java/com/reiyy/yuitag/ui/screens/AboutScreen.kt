@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.outlined.Article
+import androidx.compose.material.icons.outlined.AltRoute
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Gavel
@@ -57,11 +58,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.reiyy.yuitag.data.GithubRelease
 import com.reiyy.yuitag.data.GithubReleaseChecker
 import com.reiyy.yuitag.data.NoReleaseException
 import com.reiyy.yuitag.data.NotificationRepository
+import com.reiyy.yuitag.data.UpdateChannel
 import com.reiyy.yuitag.ui.components.SettingsCard
 import com.reiyy.yuitag.ui.components.SettingsHeader
+import com.reiyy.yuitag.ui.components.SettingsRadioPreference
 import com.reiyy.yuitag.ui.components.SettingsRow
 import com.reiyy.yuitag.util.VersionUtils
 import kotlinx.coroutines.launch
@@ -97,9 +101,22 @@ fun AboutScreen(
 
     val checker = remember { GithubReleaseChecker() }
     val scope = rememberCoroutineScope()
+    val prefs = remember { context.getSharedPreferences("yuitag_settings", Context.MODE_PRIVATE) }
+    var updateChannel by remember {
+        val saved = prefs.getString(UpdateChannel.PREF_KEY, null)
+        val initial = if (saved != null) {
+            UpdateChannel.fromKey(saved)
+        } else if (VersionUtils.isPrerelease(versionName)) {
+            UpdateChannel.BETA
+        } else {
+            UpdateChannel.RELEASE
+        }
+        mutableStateOf(initial)
+    }
     var isChecking by remember { mutableStateOf(false) }
     var updateStatus by remember { mutableStateOf<String?>(null) }
     var newVersionTag by remember { mutableStateOf<String?>(null) }
+    var newReleaseInfo by remember { mutableStateOf<GithubRelease?>(null) }
 
     // 将 AdaptiveIconDrawable 栅格化为位图展示
     val appIcon = remember {
@@ -110,26 +127,37 @@ fun AboutScreen(
         }
     }
 
+    fun onUpdateChannelChanged(channel: UpdateChannel) {
+        updateChannel = channel
+        prefs.edit().putString(UpdateChannel.PREF_KEY, channel.key).apply()
+        updateStatus = null
+        newVersionTag = null
+        newReleaseInfo = null
+    }
+
     fun doCheckUpdate() {
         if (isChecking) return
         isChecking = true
-        updateStatus = "正在检查更新..."
+        updateStatus = "正在检查更新 (${updateChannel.title})..."
         newVersionTag = null
+        newReleaseInfo = null
         scope.launch {
             try {
-                val release = checker.checkLatestRelease()
+                val release = checker.checkLatestRelease(updateChannel)
                 if (release.tagName.isNotEmpty() && VersionUtils.isNewerVersion(release.tagName, versionName)) {
                     newVersionTag = release.tagName
-                    updateStatus = "发现新版本 ${release.tagName}"
+                    newReleaseInfo = release
+                    val typeLabel = if (release.isPrerelease) "开发版" else "正式版"
+                    updateStatus = "发现新版本 ${release.tagName} ($typeLabel)"
                     NotificationRepository.getInstance(context)
-                        .postAppUpdateNotification(release.tagName)
+                        .postAppUpdateNotification(release.tagName, release.body)
                 } else {
-                    updateStatus = "当前已是最新版本"
+                    updateStatus = "当前已是最新版本 (${updateChannel.title})"
                 }
             } catch (e: NoReleaseException) {
                 updateStatus = e.message ?: "仓库尚未发布版本"
-            } catch (_: Exception) {
-                updateStatus = "检查更新失败，请检查网络"
+            } catch (e: Exception) {
+                updateStatus = e.message ?: "检查更新失败，请检查网络"
             } finally {
                 isChecking = false
             }
@@ -208,9 +236,22 @@ fun AboutScreen(
             // 版本与更新
             SettingsHeader("更新")
             SettingsCard {
+                SettingsRadioPreference(
+                    icon = Icons.Outlined.AltRoute,
+                    title = "更新通道",
+                    subtitle = updateChannel.subtitle,
+                    options = listOf(
+                        UpdateChannel.RELEASE to UpdateChannel.RELEASE.title,
+                        UpdateChannel.BETA to UpdateChannel.BETA.title
+                    ),
+                    selected = updateChannel,
+                    onSelect = { onUpdateChannelChanged(it) }
+                )
+                HorizontalDivider()
                 SettingsRow(
                     icon = Icons.Outlined.Sync,
                     title = "检查新版本",
+                    subtitle = updateStatus ?: "当前通道: ${updateChannel.title}",
                     trailing = {
                         if (isChecking) {
                             Box(
@@ -353,21 +394,55 @@ fun AboutScreen(
     }
 
     if (newVersionTag != null) {
+        val release = newReleaseInfo
+        val isPre = release?.isPrerelease == true || VersionUtils.isPrerelease(newVersionTag!!)
+        val typeBadge = if (isPre) "开发版" else "正式版"
         AlertDialog(
-            onDismissRequest = { newVersionTag = null },
-            title = { Text("发现新版本") },
-            text = { Text("检测到新版本 $newVersionTag") },
+            onDismissRequest = {
+                newVersionTag = null
+                newReleaseInfo = null
+            },
+            title = { Text("发现新版本 ($typeBadge)") },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        text = "检测到新版本 $newVersionTag",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    val notes = release?.body?.trim()
+                    if (!notes.isNullOrEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = "更新说明：",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = if (notes.length > 200) notes.take(200) + "..." else notes,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = {
-                    openUrl(context, "$GITHUB_REPO_URL/releases")
+                    val url = release?.htmlUrl?.ifEmpty { null } ?: "$GITHUB_REPO_URL/releases"
+                    openUrl(context, url)
                     newVersionTag = null
+                    newReleaseInfo = null
                 }) {
-                    Text("更新")
+                    Text("前往更新")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { newVersionTag = null }) {
-                    Text("关闭")
+                TextButton(onClick = {
+                    newVersionTag = null
+                    newReleaseInfo = null
+                }) {
+                    Text("稍后")
                 }
             }
         )
