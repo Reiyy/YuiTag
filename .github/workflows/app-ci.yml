@@ -35,6 +35,34 @@ jobs:
         working-directory: ./App
         run: ./gradlew testDebugUnitTest
 
+      # 缓存并准备CoreADI
+      - name: Cache CoreADI asset
+        id: cache-coreadi
+        uses: actions/cache@v4
+        with:
+          path: App/app/src/main/assets/coreadi/CoreADI.x86_64
+          key: coreadi-2eafc3c79c7f41a8afbfbeaaf23ee5dab5ad5bda55ec8e54dbc0ddf1d20ce630
+
+      - name: Install p7zip
+        if: steps.cache-coreadi.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y p7zip-full
+
+      - name: Extract CoreADI
+        if: steps.cache-coreadi.outputs.cache-hit != 'true'
+        run: |
+          python3 tools/extract_coreadi.py --dest App/app/src/main/assets/coreadi
+
+      - name: Verify CoreADI Asset
+        run: |
+          COREADI_FILE="App/app/src/main/assets/coreadi/CoreADI.x86_64"
+          if [ ! -f "$COREADI_FILE" ]; then
+            echo "Error: CoreADI asset not found at $COREADI_FILE"
+            exit 1
+          fi
+          echo "CoreADI asset verified: $(sha256sum "$COREADI_FILE")"
+
       - name: Build Debug APK
         working-directory: ./App
         run: ./gradlew assembleDebug

@@ -132,8 +132,14 @@ fun SettingsQueryScreen(onBack: () -> Unit) {
                     placeholder = "100",
                     keyboardType = KeyboardType.Number,
                     onSave = {
-                        batchKeyLimitText = it
-                        service.saveBatchKeyLimit((it.toIntOrNull() ?: 100).coerceAtLeast(1))
+                        val num = it.trim().toIntOrNull()
+                        if (num != null && num > 0) {
+                            batchKeyLimitText = num.toString()
+                            service.saveBatchKeyLimit(num)
+                        } else {
+                            service.saveBatchKeyLimit(-1)
+                            batchKeyLimitText = service.getBatchKeyLimit().toString()
+                        }
                     }
                 )
                 HorizontalDivider()

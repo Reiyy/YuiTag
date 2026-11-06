@@ -3,6 +3,11 @@ package com.reiyy.yuitag.data
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Base64
+import com.reiyy.yuitag.apple.account.AppleAccountManager
+import com.reiyy.yuitag.apple.account.AppleLoginException
+import com.reiyy.yuitag.apple.reports.AppleForbiddenException
+import com.reiyy.yuitag.apple.reports.AppleRateLimitException
+import com.reiyy.yuitag.apple.reports.ReportsFetchException
 import com.reiyy.yuitag.ble.CryptoUtils
 import com.reiyy.yuitag.ble.FileLog
 import com.reiyy.yuitag.data.local.AddressComponents
@@ -27,6 +32,10 @@ class FindMyQueryService(private val context: Context) {
         const val GEOCODE_PROVIDER_AMAP = "amap"
         const val GEOCODE_PROVIDER_TIANDITU = "tianditu"
 
+        const val KEY_QUERY_MODE = "query_mode"
+        const val QUERY_MODE_APPLE_DIRECT = "apple_direct"
+        const val QUERY_MODE_CUSTOM_BACKEND = "custom_backend"
+
         private const val TAG = "FindMyQuery"
         private const val EXTENSION_DAYS = 7
         private const val PREF_NAME = "yuitag_settings"
@@ -49,10 +58,12 @@ class FindMyQueryService(private val context: Context) {
         private const val KEY_AUTO_REFRESH_ENABLED = "auto_refresh_enabled"
 
         // --- 错误退避与熔断策略 ---
-        /** 普通网络异常 / 5xx 服务端错误退避冷却时间（60秒） */
+        /** 普通网络异常 / 5xx 错误退避冷却（60秒） */
         private const val COOLDOWN_NORMAL_MS = 60_000L
-        /** 致命错误（541 AppleID失效 / 401 认证失败）退避冷却时间（5分钟） */
+        /** 认证失效（401 等）退避冷却（5分钟） */
         private const val COOLDOWN_FATAL_MS = 300_000L
+        /** 苹果风控/限流（429 / 403）退避冷却（15分钟，避免连续请求导致封禁） */
+        private const val COOLDOWN_RATELIMIT_MS = 900_000L
 
         @Volatile
         private var cooldownUntilTimestamp: Long = 0L
@@ -68,6 +79,7 @@ class FindMyQueryService(private val context: Context) {
         /** 记录异常并启动退避冷却 */
         fun recordFailure(e: Throwable) {
             val duration = when (e) {
+                is AppleRateLimitException, is AppleForbiddenException -> COOLDOWN_RATELIMIT_MS
                 is AppleSessionExpiredException, is BackendAuthException -> COOLDOWN_FATAL_MS
                 else -> COOLDOWN_NORMAL_MS
             }
@@ -107,8 +119,28 @@ class FindMyQueryService(private val context: Context) {
     fun saveExtensionValue(value: Float) { prefs.edit().putFloat(KEY_QUERY_EXTENSION_VALUE, value).apply() }
     fun saveAddressLevel(level: String) { prefs.edit().putString(KEY_ADDRESS_LEVEL, level).apply() }
 
-    fun getBatchKeyLimit(): Int = prefs.getInt(KEY_BATCH_KEY_LIMIT, 100)
-    fun saveBatchKeyLimit(value: Int) { prefs.edit().putInt(KEY_BATCH_KEY_LIMIT, value).apply() }
+    fun getDefaultBatchKeyLimit(): Int {
+        // 苹果直连默认推荐单批 256 密钥（减少 HTTP 交互），外部自建后端默认 100
+        return if (isAppleDirect()) 256 else 100
+    }
+
+    fun isCustomBatchKeyLimit(): Boolean = prefs.getInt(KEY_BATCH_KEY_LIMIT, -1) > 0
+
+    fun getCustomBatchKeyLimit(): Int? = prefs.getInt(KEY_BATCH_KEY_LIMIT, -1).takeIf { it > 0 }
+
+    fun getBatchKeyLimit(): Int {
+        val userVal = prefs.getInt(KEY_BATCH_KEY_LIMIT, -1)
+        if (userVal > 0) return userVal
+        return getDefaultBatchKeyLimit()
+    }
+
+    fun saveBatchKeyLimit(value: Int) {
+        if (value <= 0) {
+            prefs.edit().remove(KEY_BATCH_KEY_LIMIT).apply()
+        } else {
+            prefs.edit().putInt(KEY_BATCH_KEY_LIMIT, value).apply()
+        }
+    }
     fun getChunkRetryCount(): Int = prefs.getInt(KEY_CHUNK_RETRY_COUNT, 1)
     fun saveChunkRetryCount(value: Int) { prefs.edit().putInt(KEY_CHUNK_RETRY_COUNT, value).apply() }
     fun getChunkRetryDelaySec(): Int = prefs.getInt(KEY_CHUNK_RETRY_DELAY, 1)
@@ -156,6 +188,65 @@ class FindMyQueryService(private val context: Context) {
     fun isInCooldown(): Boolean = Companion.isInCooldown()
     fun getLastFailureReason(): String? = Companion.getLastFailureReason()
     fun resetCooldown() = Companion.resetCooldown()
+
+    fun getQueryMode(): String {
+        val saved = prefs.getString(KEY_QUERY_MODE, null)
+        if (saved != null) return saved
+        val appleManager = AppleAccountManager.getInstance(context)
+        if (appleManager.isLoggedIn()) return QUERY_MODE_APPLE_DIRECT
+        return if (getEndpointUrl().isNotBlank()) QUERY_MODE_CUSTOM_BACKEND else QUERY_MODE_APPLE_DIRECT
+    }
+    fun saveQueryMode(mode: String) { prefs.edit().putString(KEY_QUERY_MODE, mode).apply() }
+    fun isAppleDirect(): Boolean = getQueryMode() == QUERY_MODE_APPLE_DIRECT
+
+    fun isQueryConfigured(): Boolean {
+        return if (isAppleDirect()) {
+            val appleManager = com.reiyy.yuitag.apple.account.AppleAccountManager.getInstance(context)
+            appleManager.isLoggedIn()
+        } else {
+            getEndpointUrl().isNotBlank()
+        }
+    }
+
+    suspend fun testAppleDirectConnection(): String = withContext(Dispatchers.IO) {
+        val appleAccountManager = AppleAccountManager.getInstance(context)
+        if (!com.reiyy.yuitag.apple.anisette.CoreAdiDownloader.isReady(context)) {
+            return@withContext "CoreADI 核心未就绪，请先导入或下载 CoreADI.x86_64"
+        }
+        if (!appleAccountManager.isLoggedIn()) {
+            return@withContext "未登录 Apple ID，请先登录账户"
+        }
+
+        val account = appleAccountManager.getAccount()
+        val name = account.accountInfo?.firstName ?: account.username ?: "Apple 用户"
+
+        try {
+            val rttMs = appleAccountManager.reportsClient.probeConnection(account)
+            resetCooldown()
+            return@withContext "连接正常 (${rttMs}ms · 已认证: $name)"
+        } catch (e: AppleLoginException) {
+            if (e.kind == AppleLoginException.Kind.UNAUTHORIZED) {
+                return@withContext "错误: 登录凭据已过期 (401)，请重新登录 Apple ID"
+            }
+            return@withContext "错误: ${e.message}"
+        } catch (e: AppleRateLimitException) {
+            return@withContext "错误: Apple 请求过于频繁已被限流 (429)，请等待 15 分钟后再试"
+        } catch (e: AppleForbiddenException) {
+            return@withContext "错误: Apple 拒绝访问 (403)，可能 IP 或账号被风控"
+        } catch (e: java.net.UnknownHostException) {
+            return@withContext "错误: 域名解析失败，请检查网络 DNS 或代理分流设置"
+        } catch (e: java.net.SocketTimeoutException) {
+            return@withContext "错误: 连接 Apple 网关超时，请检查网络连接或代理"
+        } catch (e: java.net.ConnectException) {
+            return@withContext "错误: 无法连接 Apple 服务器 (${e.message ?: "连接被拒"})"
+        } catch (e: javax.net.ssl.SSLException) {
+            return@withContext "错误: SSL/TLS 握手失败，可能被防火墙重置或证书异常"
+        } catch (e: ReportsFetchException) {
+            return@withContext "错误: ${e.message}"
+        } catch (e: Exception) {
+            return@withContext "错误: ${e.message ?: e.javaClass.simpleName}"
+        }
+    }
 
     /**
      * 设置页测试连接：探测主/备后端可达性，返回测试结果说明。
@@ -250,7 +341,7 @@ class FindMyQueryService(private val context: Context) {
             hashedKeyToPeriodIndex[hashedKeyB64] = periodIdx
         }
 
-        return processKeyBatch(uid, hashedKeyToPrivateKey, hashedKeyToPeriodIndex)
+        return processKeyBatch(uid, hashedKeyToPrivateKey, hashedKeyToPeriodIndex, startSec, endSec)
     }
 
     /** 基于 Sparks 预生成固定密钥池查询位置 */
@@ -270,13 +361,18 @@ class FindMyQueryService(private val context: Context) {
             hashedKeyToPeriodIndex[hashedKeyB64] = k.index.toLong()
         }
 
-        return processKeyBatch(uid, hashedKeyToPrivateKey, hashedKeyToPeriodIndex)
+        val nowSec = System.currentTimeMillis() / 1000
+        val startSec = nowSec - EXTENSION_DAYS * 86400L
+        val endSec = nowSec + 86400L
+        return processKeyBatch(uid, hashedKeyToPrivateKey, hashedKeyToPeriodIndex, startSec, endSec)
     }
 
     private suspend fun processKeyBatch(
         uid: String,
         hashedKeyToPrivateKey: Map<String, ByteArray>,
-        hashedKeyToPeriodIndex: Map<String, Long>
+        hashedKeyToPeriodIndex: Map<String, Long>,
+        startSec: Long = 0L,
+        endSec: Long = 0L,
     ): List<LocationEntity> {
         val batchLimit = getBatchKeyLimit().coerceAtLeast(1)
         val retryCount = getChunkRetryCount().coerceAtLeast(0)
@@ -294,16 +390,18 @@ class FindMyQueryService(private val context: Context) {
                 attempts++
                 try {
                     FileLog.d(TAG, "分片请求: ${chunk.size} 个密钥 (第$attempts 次)")
-                    batchResults += fetchBatch(chunk)
+                    batchResults += fetchBatch(chunk, startSec, endSec)
                     chunkOk = true
                 } catch (e: NoEndpointException) {
                     throw e
                 } catch (e: AppleSessionExpiredException) {
-                    // 致命错误：无需重试分片，直接抛出中断
-                    throw e
+                    throw e // 会话失效，直接中断
+                } catch (e: AppleRateLimitException) {
+                    throw e // 苹果限流，立即中断保护账号与 IP
+                } catch (e: AppleForbiddenException) {
+                    throw e // 苹果风控拦截，立即中断
                 } catch (e: BackendAuthException) {
-                    // 致命认证错误：直接抛出中断
-                    throw e
+                    throw e // 认证失败，直接中断
                 } catch (e: IOException) {
                     FileLog.w(TAG, "分片请求失败(第$attempts 次): ${e.message}")
                     lastError = e
@@ -315,8 +413,7 @@ class FindMyQueryService(private val context: Context) {
                 }
             }
 
-            // 【关键短路保护】：若当前分片用尽重试依然失败，表明后端服务或网络不可用，
-            // 立即抛出异常终止后续所有分片，杜绝无脑继续发送下一个分片！
+            // 分片重试耗尽后直接中断，避免继续发送无效请求
             if (!chunkOk) {
                 throw (lastError ?: IOException("分片请求失败，已终止后续查询"))
             }
@@ -421,7 +518,47 @@ class FindMyQueryService(private val context: Context) {
         }
     }
 
-    private fun fetchBatch(ids: List<String>): List<JSONObject> {
+    private suspend fun fetchBatch(ids: List<String>, startSec: Long = 0L, endSec: Long = 0L): List<JSONObject> {
+        if (isAppleDirect()) {
+            val appleAccountManager = AppleAccountManager.getInstance(context)
+            if (!appleAccountManager.isLoggedIn()) {
+                throw AppleSessionExpiredException("本机直连模式尚未登录或授权过期，请在设置中登录 Apple ID")
+            }
+            val account = appleAccountManager.getAccount()
+            val reportsClient = appleAccountManager.reportsClient
+            val nowMs = System.currentTimeMillis()
+            val startMs = if (startSec > 0L) startSec * 1000L else (nowMs - EXTENSION_DAYS * 86400L * 1000L)
+            val endMs = if (endSec > 0L) endSec * 1000L else (nowMs + 86400L * 1000L)
+
+            return try {
+                val results = reportsClient.fetchRawJson(account, startMs, endMs, ids)
+                resetCooldown()
+                results
+            } catch (e: AppleLoginException) {
+                FileLog.w(TAG, "Apple 直连查询失败 (${e.kind}): ${e.message}")
+                val mapped = if (e.kind == AppleLoginException.Kind.UNAUTHORIZED) {
+                    AppleSessionExpiredException("Apple ID 会话已过期，请前往设置重新登录")
+                } else {
+                    IOException(e.message, e)
+                }
+                recordFailure(mapped)
+                throw mapped
+            } catch (e: AppleRateLimitException) {
+                FileLog.w(TAG, "Apple 直连被限流 (429): ${e.message}")
+                recordFailure(e)
+                throw e
+            } catch (e: AppleForbiddenException) {
+                FileLog.w(TAG, "Apple 直连被风控拦截 (403): ${e.message}")
+                recordFailure(e)
+                throw e
+            } catch (e: Exception) {
+                FileLog.w(TAG, "Apple 直连查询异常: ${e.message}")
+                val ioEx = (e as? IOException) ?: IOException(e.message, e)
+                recordFailure(ioEx)
+                throw ioEx
+            }
+        }
+
         val primaryUrl = getEndpointUrl().takeIf { it.isNotBlank() }
         val fallbackUrl = getEndpointUrlFallback().takeIf { it.isNotBlank() }
 

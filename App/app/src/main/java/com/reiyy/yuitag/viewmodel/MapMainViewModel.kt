@@ -898,8 +898,7 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
             FileLog.d("MapMainVM", "跳过冷启动全量查询: 后端处于退避冷却期 (${findMyQueryService.getLastFailureReason()})")
             return
         }
-        val url = findMyQueryService.getEndpointUrl()
-        if (url.isBlank()) return
+        if (!findMyQueryService.isQueryConfigured()) return
         // 重入保护，进行中直接跳过
         if (queryAllJob?.isActive == true) return
 
@@ -953,8 +952,9 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
                 Toast.makeText(getApplication(), "设备未配置 FindMy 密钥", Toast.LENGTH_SHORT).show()
                 return@launch
             }
-            if (findMyQueryService.getEndpointUrl().isBlank()) {
-                Toast.makeText(getApplication(), "请先在设置中配置后端地址", Toast.LENGTH_SHORT).show()
+            if (!findMyQueryService.isQueryConfigured()) {
+                val tip = if (findMyQueryService.isAppleDirect()) "请先在设置中登录 Apple ID" else "请先在设置中配置后端地址"
+                Toast.makeText(getApplication(), tip, Toast.LENGTH_SHORT).show()
                 return@launch
             }
 
@@ -975,7 +975,7 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
             } catch (e: NoEndpointException) {
                 Toast.makeText(getApplication(), e.message ?: "未配置后端地址", Toast.LENGTH_SHORT).show()
             } catch (e: AppleSessionExpiredException) {
-                Toast.makeText(getApplication(), "AppleID 登录失效: 请在后端服务重新登录", Toast.LENGTH_LONG).show()
+                Toast.makeText(getApplication(), e.message ?: "Apple ID 登录失效，请前往设置重新登录", Toast.LENGTH_LONG).show()
             } catch (e: BackendAuthException) {
                 Toast.makeText(getApplication(), e.message ?: "后端认证失败 (HTTP 401)", Toast.LENGTH_LONG).show()
             } catch (e: BackendServerException) {

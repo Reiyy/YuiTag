@@ -55,7 +55,7 @@ object ConfigBackupManager {
         val query_extension_type: String = "",
         val query_extension_value: Float = 2.0f,
         val address_level: String = "",
-        val query_batch_key_limit: Int = 100,
+        val query_batch_key_limit: Int = -1,
         val query_chunk_retry_count: Int = 1,
         val query_chunk_retry_delay: Int = 1,
         val amap_web_api_key: String = "",
@@ -173,7 +173,7 @@ object ConfigBackupManager {
                 writer.name("query_extension_type").value(prefs.getString("query_extension_type", "") ?: "")
                 writer.name("query_extension_value").value(prefs.getFloat("query_extension_value", 2.0f))
                 writer.name("address_level").value(prefs.getString("address_level", "") ?: "")
-                writer.name("query_batch_key_limit").value(prefs.getInt("query_batch_key_limit", 100))
+                writer.name("query_batch_key_limit").value(prefs.getInt("query_batch_key_limit", -1))
                 writer.name("query_chunk_retry_count").value(prefs.getInt("query_chunk_retry_count", 1))
                 writer.name("query_chunk_retry_delay").value(prefs.getInt("query_chunk_retry_delay", 1))
                 writer.name("geocode_provider").value(prefs.getString("geocode_provider", "amap") ?: "amap")
@@ -294,7 +294,7 @@ object ConfigBackupManager {
                 .putString("query_extension_type", s.query_extension_type)
                 .putFloat("query_extension_value", s.query_extension_value)
                 .putString("address_level", s.address_level)
-                .putInt("query_batch_key_limit", s.query_batch_key_limit.coerceAtLeast(1))
+                .apply { if (s.query_batch_key_limit > 0) putInt("query_batch_key_limit", s.query_batch_key_limit) else remove("query_batch_key_limit") }
                 .putInt("query_chunk_retry_count", s.query_chunk_retry_count.coerceAtLeast(0))
                 .putInt("query_chunk_retry_delay", s.query_chunk_retry_delay.coerceAtLeast(0))
                 .putString("geocode_provider", s.geocode_provider.ifBlank { "amap" })

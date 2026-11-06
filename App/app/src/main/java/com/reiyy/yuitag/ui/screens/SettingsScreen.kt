@@ -101,6 +101,15 @@ fun SettingsScreen(
     var liveNotificationEnabled by remember { mutableStateOf(liveNotificationPrefs.isLiveNotificationEnabled()) }
     var isLiveSupported by remember { mutableStateOf(com.reiyy.yuitag.data.LiveNotificationPreferences.isSystemSupported(context)) }
     var endpointUrl by remember { mutableStateOf(service.getEndpointUrl()) }
+    var queryMode by remember { mutableStateOf(service.getQueryMode()) }
+    val appleManager = remember { com.reiyy.yuitag.apple.account.AppleAccountManager.getInstance(context) }
+    var appleIsLoggedIn by remember { mutableStateOf(appleManager.isLoggedIn()) }
+    var appleAccountName by remember {
+        mutableStateOf(
+            appleManager.getAccount().accountInfo?.let { "${it.firstName.orEmpty()} ${it.lastName.orEmpty()}".trim() }?.ifEmpty { null }
+                ?: appleManager.getAccount().username
+        )
+    }
     var alertMasterEnabled by remember { mutableStateOf(alertPrefs.isMasterEnabled()) }
     var alertTriggerLevel by remember { mutableStateOf(alertPrefs.getTriggerLevel()) }
     var alertDelaySeconds by remember { mutableStateOf(alertPrefs.getDelaySeconds()) }
@@ -128,6 +137,10 @@ fun SettingsScreen(
         liveNotificationEnabled = liveNotificationPrefs.isLiveNotificationEnabled()
         isLiveSupported = com.reiyy.yuitag.data.LiveNotificationPreferences.isSystemSupported(context)
         endpointUrl = service.getEndpointUrl()
+        queryMode = service.getQueryMode()
+        appleIsLoggedIn = appleManager.isLoggedIn()
+        appleAccountName = appleManager.getAccount().accountInfo?.let { "${it.firstName.orEmpty()} ${it.lastName.orEmpty()}".trim() }?.ifEmpty { null }
+            ?: appleManager.getAccount().username
         alertMasterEnabled = alertPrefs.isMasterEnabled()
         alertTriggerLevel = alertPrefs.getTriggerLevel()
         alertDelaySeconds = alertPrefs.getDelaySeconds()
@@ -353,10 +366,16 @@ fun SettingsScreen(
 
             SettingsHeader("服务")
             SettingsCard {
+                val backendSubtitle = if (queryMode == FindMyQueryService.QUERY_MODE_APPLE_DIRECT) {
+                    if (appleIsLoggedIn) "本机直连 (${appleAccountName ?: "已登录"})"
+                    else "本机直连 (未登录)"
+                } else {
+                    if (endpointUrl.isBlank()) "未配置" else endpointUrl
+                }
                 SettingsRow(
                     icon = Icons.Outlined.Dns,
-                    title = "后端服务",
-                    subtitle = if (endpointUrl.isBlank()) "未配置" else endpointUrl,
+                    title = "位置服务",
+                    subtitle = backendSubtitle,
                     onClick = onNavigateToBackend
                 )
                 HorizontalDivider()

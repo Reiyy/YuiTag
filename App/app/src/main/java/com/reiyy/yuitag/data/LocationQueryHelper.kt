@@ -51,9 +51,9 @@ class LocationQueryHelper(
         return entity.fixedKeysJson.isNotBlank() || entity.findmySeed != null || entity.aesKey != null
     }
 
-    /** 后端地址是否已配置（用于前置 Toast 提示） */
+    /** 位置查询源是否已配置或已登录（用于前置 Toast 提示） */
     val hasEndpointConfigured: Boolean
-        get() = queryService.getEndpointUrl().isNotBlank()
+        get() = queryService.isQueryConfigured()
 
     private suspend fun resolveSeed(entity: com.reiyy.yuitag.data.local.DeviceEntity): ByteArray? {
         entity.findmySeed?.let { return it }
