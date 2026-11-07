@@ -1,3 +1,10 @@
+This repository is released under multiple licenses:
+- Software App (./App): GPL-2.0-or-later (see App/LICENSE)
+- Firmware (./Firmware): GPL-3.0 (see Firmware/LICENSE, and full text below)
+- Hardware (./Hardware): CERN-OHL-S v2 (see Hardware/LICENSE)
+
+================================================================================
+
                     GNU GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
 

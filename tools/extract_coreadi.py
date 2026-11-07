@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# Portions of this file are derived from os-findmy-e (https://github.com/sacca97/os-findmy-e)
+# Copyright (c) 2026 sacca.
+#
+# Licensed under the GNU General Public License v2.0 only.
+
 """
 Download CoreADI
 """

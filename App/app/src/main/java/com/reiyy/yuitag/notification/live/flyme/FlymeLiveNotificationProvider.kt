@@ -1,3 +1,8 @@
+/*
+ * Implementation references Meizu Flyme live notification mechanisms from
+ * starSchedule (https://github.com/lightStarrr/starSchedule) by lightStarrr.
+ */
+
 package com.reiyy.yuitag.notification.live.flyme
 
 import android.app.Notification

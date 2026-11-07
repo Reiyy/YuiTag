@@ -115,3 +115,8 @@ __pycache__/
 *.7z
 *.rar
 *.zip
+
+# Rust build target
+target/
+**/target/
+Cargo.lock.user

@@ -71,7 +71,7 @@ import com.reiyy.yuitag.util.VersionUtils
 import kotlinx.coroutines.launch
 
 private const val GITHUB_REPO_URL = "https://github.com/Reiyy/YuiTag"
-private const val GPL_LICENSE_URL = "https://www.gnu.org/licenses/gpl-3.0.html"
+private const val APP_LICENSE_URL = "https://github.com/Reiyy/YuiTag/blob/main/App/LICENSE"
 
 /**
  * 关于页 — App 信息、版本检查、开源协议、第三方许可与项目致谢。
@@ -298,7 +298,7 @@ fun AboutScreen(
                 SettingsRow(
                     icon = Icons.Outlined.Gavel,
                     title = "许可证",
-                    subtitle = "GNU General Public License v3.0",
+                    subtitle = "GPL-2.0-or-later",
                     trailing = {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.OpenInNew,
@@ -307,7 +307,7 @@ fun AboutScreen(
                             modifier = Modifier.size(18.dp)
                         )
                     },
-                    onClick = { openUrl(context, GPL_LICENSE_URL) }
+                    onClick = { openUrl(context, APP_LICENSE_URL) }
                 )
                 HorizontalDivider()
                 SettingsRow(

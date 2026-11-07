@@ -103,13 +103,18 @@ Starlight支持**无限**动态密钥的FindMy网络
 
 ## 许可证
 
-YuiTag 采用 **多许可证(Multi-License)** 发布。不同组件分别适用以下开源许可证：
+YuiTag 采用 **多许可证(Multi-License)** 发布。不同组件分别适用以下开源许可证：  
 
-App及固件 (./App、./Firmware)：  
-采用 **[GNU General Public License v3 (GPL-3)](https://www.gnu.org/licenses/gpl-3.0.html)** 许可证.
+App (./App)：  
+采用 **[GNU General Public License v2 or later (GPL-2.0-or-later)](./App/LICENSE)** 许可证.  
+
+固件 (./Firmware)：  
+采用 **[GNU General Public License v3 (GPL-3.0)](./Firmware/LICENSE)** 许可证.  
 
 硬件 (./Hardware)：  
-采用 **[CERN Open Hardware Licence Strongly Reciprocal v2 (CERN-OHL-S v2)](https://ohwr.org/cern_ohl_s_v2.txt)** 许可证.
+采用 **[CERN Open Hardware Licence Strongly Reciprocal v2 (CERN-OHL-S v2)](./Hardware/LICENSE)** 许可证.
+
+其他声明以各组件目录下的 LICENSE 文件为准。
 
 ---
 

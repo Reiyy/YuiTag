@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = [
+    "adi-core",
+    "ottjni",
+]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.88"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+opt-level = 3
