@@ -37,6 +37,8 @@ import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -50,12 +52,15 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -81,6 +86,7 @@ import com.reiyy.yuitag.ui.components.SettingsCard
 import com.reiyy.yuitag.ui.components.SettingsHeader
 import com.reiyy.yuitag.ui.components.SettingsRow
 import com.reiyy.yuitag.ui.components.SettingsTextPreference
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -114,6 +120,25 @@ fun SettingsBackendScreen(onBack: () -> Unit) {
     var isSubmittingCode by remember { mutableStateOf(false) }
     var twoFactorError by remember { mutableStateOf<String?>(null) }
     var pendingLoginService by remember { mutableStateOf<AppleLoginService?>(null) }
+    var lastSentTimeMap by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
+    var countdownTick by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(showTwoFactorDialog, lastSentTimeMap, selectedMethodIndex) {
+        if (!showTwoFactorDialog) return@LaunchedEffect
+        while (true) {
+            val currentMethod = twoFactorMethods.getOrNull(selectedMethodIndex) ?: break
+            val lastSent = lastSentTimeMap[currentMethod.uniqueKey] ?: 0L
+            if (lastSent == 0L) {
+                countdownTick = 0
+                break
+            }
+            val elapsed = (System.currentTimeMillis() - lastSent) / 1000
+            val remaining = (60 - elapsed).coerceIn(0, 60)
+            countdownTick = remaining.toInt()
+            if (remaining <= 0) break
+            delay(1000)
+        }
+    }
 
     // Custom backend mode state
     var endpointUrl by remember { mutableStateOf(service.getEndpointUrl()) }
@@ -437,6 +462,11 @@ fun SettingsBackendScreen(onBack: () -> Unit) {
                                                         selectedMethodIndex = 0
                                                         twoFactorCode = ""
                                                         twoFactorError = null
+                                                        val initialMap = mutableMapOf<String, Long>()
+                                                        if (res.methods.any { it is TwoFactorChallenge.TrustedDevice }) {
+                                                            initialMap["trusted_device"] = System.currentTimeMillis()
+                                                        }
+                                                        lastSentTimeMap = initialMap
                                                         showTwoFactorDialog = true
                                                     }
                                                 }
@@ -560,10 +590,19 @@ fun SettingsBackendScreen(onBack: () -> Unit) {
     // 双重认证验证码弹窗
     if (showTwoFactorDialog && twoFactorMethods.isNotEmpty()) {
         val currentMethod = twoFactorMethods.getOrNull(selectedMethodIndex) ?: twoFactorMethods.first()
+        val currentKey = currentMethod.uniqueKey
+        val lastSentTime = lastSentTimeMap[currentKey] ?: 0L
+        val hasSent = lastSentTime > 0L
+        @Suppress("UNUSED_VARIABLE")
+        val tick = countdownTick // 触发每秒重组
+        val remainingSeconds = if (hasSent) {
+            (60 - (System.currentTimeMillis() - lastSentTime) / 1000).coerceIn(0, 60).toInt()
+        } else 0
+        val isInCooldown = remainingSeconds > 0
 
         AlertDialog(
             onDismissRequest = {
-                if (!isSubmittingCode) {
+                if (!isSubmittingCode && !isRequestingCode) {
                     showTwoFactorDialog = false
                     twoFactorError = null
                 }
@@ -591,6 +630,7 @@ fun SettingsBackendScreen(onBack: () -> Unit) {
                                     .fillMaxWidth()
                                     .selectable(
                                         selected = selectedMethodIndex == index,
+                                        enabled = !isRequestingCode && !isSubmittingCode,
                                         onClick = { selectedMethodIndex = index },
                                         role = Role.RadioButton
                                     )
@@ -599,6 +639,7 @@ fun SettingsBackendScreen(onBack: () -> Unit) {
                             ) {
                                 RadioButton(
                                     selected = selectedMethodIndex == index,
+                                    enabled = !isRequestingCode && !isSubmittingCode,
                                     onClick = null
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -615,6 +656,53 @@ fun SettingsBackendScreen(onBack: () -> Unit) {
                         Spacer(modifier = Modifier.height(8.dp))
                     }
 
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .padding(top = 1.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            val hintText = when (currentMethod) {
+                                is TwoFactorChallenge.TrustedDevice -> {
+                                    if (isInCooldown) {
+                                        "验证码已自动发送至您的 Apple 信任设备（如 iPhone/iPad/Mac），请在设备弹窗中轻点“允许”查看 6 位验证码并填入下方。"
+                                    } else {
+                                        "若您的 Apple 信任设备未收到弹窗提示，可点击下方“重新发送验证码”。"
+                                    }
+                                }
+                                is TwoFactorChallenge.Sms -> {
+                                    if (!hasSent) {
+                                        "请点击下方“发送验证码”，Apple 将向绑定的受信任手机号发送短信验证码。"
+                                    } else if (isInCooldown) {
+                                        "短信验证码已发送至 ${currentMethod.phoneNumber}，请注意查收。"
+                                    } else {
+                                        "若未收到短信，可点击下方“重新发送验证码”。"
+                                    }
+                                }
+                            }
+                            Text(
+                                text = hintText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+
                     OutlinedButton(
                         onClick = {
                             isRequestingCode = true
@@ -622,7 +710,13 @@ fun SettingsBackendScreen(onBack: () -> Unit) {
                             scope.launch {
                                 try {
                                     currentMethod.request()
-                                    Toast.makeText(context, "验证码已发送至所选设备/手机", Toast.LENGTH_SHORT).show()
+                                    lastSentTimeMap = lastSentTimeMap + (currentKey to System.currentTimeMillis())
+                                    val tip = if (currentMethod is TwoFactorChallenge.TrustedDevice) {
+                                        "验证码已重新发送至您的 Apple 信任设备"
+                                    } else {
+                                        "短信验证码已发送至所选手机号"
+                                    }
+                                    Toast.makeText(context, tip, Toast.LENGTH_SHORT).show()
                                 } catch (e: Exception) {
                                     twoFactorError = "发送验证码失败: ${e.message}"
                                 } finally {
@@ -630,13 +724,17 @@ fun SettingsBackendScreen(onBack: () -> Unit) {
                                 }
                             }
                         },
-                        enabled = !isRequestingCode && !isSubmittingCode,
+                        enabled = !isRequestingCode && !isSubmittingCode && !isInCooldown,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         if (isRequestingCode) {
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("正在发送...")
+                        } else if (isInCooldown) {
+                            Text("重新发送 (${remainingSeconds}s)")
+                        } else if (hasSent) {
+                            Text("重新发送验证码")
                         } else {
                             Text("发送验证码")
                         }
@@ -707,7 +805,7 @@ fun SettingsBackendScreen(onBack: () -> Unit) {
             dismissButton = {
                 TextButton(
                     onClick = { showTwoFactorDialog = false },
-                    enabled = !isSubmittingCode
+                    enabled = !isSubmittingCode && !isRequestingCode
                 ) {
                     Text("取消")
                 }
@@ -715,3 +813,9 @@ fun SettingsBackendScreen(onBack: () -> Unit) {
         )
     }
 }
+
+private val TwoFactorChallenge.uniqueKey: String
+    get() = when (this) {
+        is TwoFactorChallenge.TrustedDevice -> "trusted_device"
+        is TwoFactorChallenge.Sms -> "sms_${phoneNumberId}_${phoneNumber}"
+    }
