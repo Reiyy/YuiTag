@@ -12,7 +12,7 @@
 针对有限固定密钥组的类型还利用App支持了随时写入全新的一组密钥而无需重新烧录固件。  
   
 YuiTag有两个版本 Sparks火花 / Starlight星光   
-Sparks支持**有限**固定密钥组的FindMy网络  
+Sparks支持**有限**轮换密钥组的FindMy网络  
 Starlight支持**无限**动态密钥的FindMy网络  
 
 ## 兼容性
@@ -35,17 +35,15 @@ Starlight支持**无限**动态密钥的FindMy网络
 
 1. 焊接PCB硬件
 2. 烧录固件
-3. 配置macless-haystack后端
-4. 配置YuiTag App
-5. 使用YuiTag App绑定Tag
-6. 配置Tag
-7. Enjoy, heart❤️! =w=
+3. 配置YuiTag App
+4. 使用YuiTag App绑定Tag
+5. 配置Tag
+6. Enjoy, heart❤️! =w=
 
 以上为简要步骤，具体请查看：  
 关于硬件，请查看 [硬件文档](/tools/Documentation/Hardware.md)  
 关于固件，请查看 [固件文档](/tools/Documentation/Firmware.md)  
 关于YuiTag App，请查看 [App文档](/tools/Documentation/App.md)  
-关于macless-haystack后端，请查看 [lovelyelfpop/macless-haystack项目](https://gitee.com/lovelyelfpop/macless-haystack)
 
 ## 下载
 
