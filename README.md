@@ -12,7 +12,7 @@
 针对有限固定密钥组的类型还利用App支持了随时写入全新的一组密钥而无需重新烧录固件。  
   
 YuiTag有两个版本 Sparks火花 / Starlight星光   
-Sparks支持**有限**固定密钥组的FindMy网络  
+Sparks支持**有限**轮换密钥组的FindMy网络  
 Starlight支持**无限**动态密钥的FindMy网络  
 
 ## 兼容性
@@ -35,17 +35,15 @@ Starlight支持**无限**动态密钥的FindMy网络
 
 1. 焊接PCB硬件
 2. 烧录固件
-3. 配置macless-haystack后端
-4. 配置YuiTag App
-5. 使用YuiTag App绑定Tag
-6. 配置Tag
-7. Enjoy, heart❤️! =w=
+3. 配置YuiTag App
+4. 使用YuiTag App绑定Tag
+5. 配置Tag
+6. Enjoy, heart❤️! =w=
 
 以上为简要步骤，具体请查看：  
 关于硬件，请查看 [硬件文档](/tools/Documentation/Hardware.md)  
 关于固件，请查看 [固件文档](/tools/Documentation/Firmware.md)  
 关于YuiTag App，请查看 [App文档](/tools/Documentation/App.md)  
-关于macless-haystack后端，请查看 [lovelyelfpop/macless-haystack项目](https://gitee.com/lovelyelfpop/macless-haystack)
 
 ## 下载
 
@@ -76,10 +74,10 @@ Starlight支持**无限**动态密钥的FindMy网络
 - [x] 可个性化配置的查找App  
 - [x] 支持OTA固件更新（仅Starlight）
 - [x] 遗落提醒(实验性)与魅族Flyme实况通知
+- [x] App集成FindMy数据查询(脱离自建后端依赖)
 - [ ] 适配沁恒 CH59x 芯片
 - [ ] 设计更大容量电池的硬件
 - [ ] 支持自定义蜂鸣器响铃旋律
-- [ ] App集成FindMy数据查询(脱离自建后端依赖)
 - [ ] 更完善的遗落提醒
 - [ ] iOS端App移植
 
@@ -98,6 +96,8 @@ Starlight支持**无限**动态密钥的FindMy网络
 - [lovelyelfpop/macless-haystack](https://gitee.com/lovelyelfpop/macless-haystack): 提供macless-haystack后端，和FindMy实现参考
 - [acalatrava/openhaystack-firmware](https://github.com/acalatrava/openhaystack-firmware): 提供FindMy数据格式和固件编写参考
 - [lightStarrr/starSchedule](https://github.com/lightStarrr/starSchedule): 提供魅族Flyme实况通知的实现参考
+- [tieo/TagHistory](https://github.com/tieo/TagHistory): 提供本机直连位置查询与协议交互参考，以及JNI运行库
+- [sacca97/os-findmy-e](https://github.com/sacca97/os-findmy-e): 提供CoreADI提取方案与ADI模拟实现参考
 
 ## 许可证
 

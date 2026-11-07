@@ -13,8 +13,13 @@ Thumbs.db
 *.jks
 *.p12
 *.pem
+!app/src/main/res/raw/*.pem
 *.log
 
 # 本地私有脚本与说明
 build.ps1
 AGENTS.md
+
+# CoreADI
+app/src/main/assets/coreadi/CoreADI.x86_64
+

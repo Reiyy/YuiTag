@@ -30,8 +30,9 @@ class LocationHistoryViewModel(application: Application) : AndroidViewModel(appl
     lateinit var repository: DeviceRepository
         private set
 
-    private val queryHelper by lazy { LocationQueryHelper(repository, FindMyQueryService(getApplication())) }
-    private val backfillHelper by lazy { GeocodeBackfillHelper(repository, FindMyQueryService(getApplication())) }
+    private val queryService by lazy { FindMyQueryService(getApplication()) }
+    private val queryHelper by lazy { LocationQueryHelper(repository, queryService) }
+    private val backfillHelper by lazy { GeocodeBackfillHelper(repository, queryService) }
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
@@ -99,7 +100,8 @@ class LocationHistoryViewModel(application: Application) : AndroidViewModel(appl
                     return@launch
                 }
                 if (!queryHelper.hasEndpointConfigured) {
-                    Toast.makeText(getApplication(), "请先在设置中配置后端地址", Toast.LENGTH_SHORT).show()
+                    val msg = if (queryService.isAppleDirect()) "请先在设置中登录 Apple ID" else "请先在设置中配置后端地址"
+                    Toast.makeText(getApplication(), msg, Toast.LENGTH_SHORT).show()
                     return@launch
                 }
 
@@ -114,7 +116,7 @@ class LocationHistoryViewModel(application: Application) : AndroidViewModel(appl
             } catch (e: NoEndpointException) {
                 Toast.makeText(getApplication(), e.message ?: "未配置后端地址", Toast.LENGTH_SHORT).show()
             } catch (e: AppleSessionExpiredException) {
-                Toast.makeText(getApplication(), "AppleID 登录失效: 请在后端服务重新登录", Toast.LENGTH_LONG).show()
+                Toast.makeText(getApplication(), e.message ?: "Apple ID 登录失效，请前往设置重新登录", Toast.LENGTH_LONG).show()
             } catch (e: BackendAuthException) {
                 Toast.makeText(getApplication(), e.message ?: "后端认证失败 (HTTP 401)", Toast.LENGTH_LONG).show()
             } catch (e: BackendServerException) {

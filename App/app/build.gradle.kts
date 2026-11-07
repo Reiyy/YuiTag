@@ -14,8 +14,8 @@ android {
         applicationId = "com.reiyy.yuitag"
         minSdk = 31
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.0"
+        versionCode = 3
+        versionName = "1.0.0-beta.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -82,6 +82,8 @@ dependencies {
 
     // Gson (theme config JSON serialization)
     implementation("com.google.code.gson:gson:2.11.0")
+    // OkHttp (Apple GrandSlam & FindMy direct API)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // AboutLibraries (自动化开源许可)
     implementation(libs.aboutlibraries.compose.m3)
@@ -91,5 +93,4 @@ dependencies {
     androidTestImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
-    androidTestImplementation(libs.androidx.room.testing)
 }
