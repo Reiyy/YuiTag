@@ -1,6 +1,7 @@
 # YuiTag
 [![License](https://img.shields.io/github/license/Reiyy/YuiTag?color=brightgreen)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/Reiyy/YuiTag?color=brightgreen&include_prereleases)](https://github.com/Reiyy/YuiTag/releases)
+[![App CI](https://github.com/Reiyy/YuiTag/actions/workflows/app-ci.yml/badge.svg)](https://github.com/Reiyy/YuiTag/actions/workflows/app-ci.yml)
+[![Release](https://img.shields.io/github/v/release/Reiyy/YuiTag?include_prereleases)](https://github.com/Reiyy/YuiTag/releases)
 [![Downloads](https://img.shields.io/github/downloads/Reiyy/YuiTag/total)](https://github.com/Reiyy/YuiTag/releases)
 
 ## 简介 
