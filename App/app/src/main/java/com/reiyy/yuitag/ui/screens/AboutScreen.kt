@@ -372,6 +372,36 @@ fun AboutScreen(
                     },
                     onClick = { openUrl(context, "https://github.com/lightStarrr/starSchedule") }
                 )
+                HorizontalDivider()
+                SettingsRow(
+                    icon = Icons.Outlined.FavoriteBorder,
+                    title = "TagHistory",
+                    subtitle = "本机直连位置查询与协议交互参考，以及 JNI 运行库",
+                    trailing = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    onClick = { openUrl(context, "https://github.com/tieo/TagHistory") }
+                )
+                HorizontalDivider()
+                SettingsRow(
+                    icon = Icons.Outlined.FavoriteBorder,
+                    title = "os-findmy-e",
+                    subtitle = "CoreADI 提取方案与 ADI 模拟实现参考",
+                    trailing = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    onClick = { openUrl(context, "https://github.com/sacca97/os-findmy-e") }
+                )
             }
 
             Spacer(Modifier.height(32.dp))
