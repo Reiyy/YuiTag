@@ -1,6 +1,7 @@
 # YuiTag
-[![License](https://img.shields.io/github/license/Reiyy/YuiTag?color=blue)](LICENSE)
-[![License: CERN-OHL-S v2](https://img.shields.io/badge/Hardware%20License-CERN--OHL--S%20v2-informational.svg)](./Hardware/LICENSE)  
+[![App-License](https://img.shields.io/badge/App%20License-GPL--2.0-blue.svg)](./App/LICENSE)
+[![Firmware-License](https://img.shields.io/badge/Firmware%20License-GPL--3.0-blue.svg)](./Firmware/LICENSE)
+[![Hardware-License](https://img.shields.io/badge/Hardware%20License-CERN--OHL--S%20v2-informational.svg)](./Hardware/LICENSE)  
 [![App CI](https://github.com/Reiyy/YuiTag/actions/workflows/app-ci.yml/badge.svg)](https://github.com/Reiyy/YuiTag/actions/workflows/app-ci.yml)
 [![Release](https://img.shields.io/github/v/release/Reiyy/YuiTag?include_prereleases)](https://github.com/Reiyy/YuiTag/releases)
 [![Downloads](https://img.shields.io/github/downloads/Reiyy/YuiTag/total)](https://github.com/Reiyy/YuiTag/releases)
