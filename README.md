@@ -1,5 +1,6 @@
 # YuiTag
-[![License](https://img.shields.io/github/license/Reiyy/YuiTag?color=brightgreen)](LICENSE)
+[![License](https://img.shields.io/github/license/Reiyy/YuiTag?color=blue)](LICENSE)
+[![License: CERN-OHL-S v2](https://img.shields.io/badge/Hardware%20License-CERN--OHL--S%20v2-informational.svg)](./Hardware/LICENSE)  
 [![App CI](https://github.com/Reiyy/YuiTag/actions/workflows/app-ci.yml/badge.svg)](https://github.com/Reiyy/YuiTag/actions/workflows/app-ci.yml)
 [![Release](https://img.shields.io/github/v/release/Reiyy/YuiTag?include_prereleases)](https://github.com/Reiyy/YuiTag/releases)
 [![Downloads](https://img.shields.io/github/downloads/Reiyy/YuiTag/total)](https://github.com/Reiyy/YuiTag/releases)
@@ -102,7 +103,13 @@ Starlight支持**无限**动态密钥的FindMy网络
 
 ## 许可证
 
-YuiTag 采用 **GNU General Public License v3 (GPL-3)** 许可证 (https://www.gnu.org/licenses/gpl-3.0.html).
+YuiTag 采用 **多许可证(Multi-License)** 发布。不同组件分别适用以下开源许可证：
+
+App及固件 (./App、./Firmware)：  
+采用 **[GNU General Public License v3 (GPL-3)](https://www.gnu.org/licenses/gpl-3.0.html)** 许可证.
+
+硬件 (./Hardware)：  
+采用 **[CERN Open Hardware Licence Strongly Reciprocal v2 (CERN-OHL-S v2)](https://ohwr.org/cern_ohl_s_v2.txt)** 许可证.
 
 ---
 
