@@ -14,8 +14,8 @@ android {
         applicationId = "com.reiyy.yuitag"
         minSdk = 31
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.0.0-beta.3"
+        versionCode = 5
+        versionName = "1.1.0-beta.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

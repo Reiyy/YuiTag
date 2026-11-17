@@ -431,7 +431,7 @@ class SeparationAlertService : Service() {
         }
 
         currentScanMode = mode
-        val filters = listOf(YuiTagProtocol.createScanFilter())
+        val filters = YuiTagProtocol.createScanFilters()
         val settings = ScanSettings.Builder()
             .setScanMode(mode)
             .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)

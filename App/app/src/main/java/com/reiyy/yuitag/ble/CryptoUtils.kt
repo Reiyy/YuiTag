@@ -3,6 +3,7 @@ package com.reiyy.yuitag.ble
 import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.MessageDigest
+import java.security.SecureRandom
 import java.security.interfaces.ECPublicKey
 import java.security.spec.ECGenParameterSpec
 import javax.crypto.Cipher
@@ -18,6 +19,8 @@ object CryptoUtils {
 
     // Find My 派生域分隔常量：必须与固件 yuitag_config.h 的 FINDMY_DERIVE_INFO 保持一致
     private const val FINDMY_DERIVE_INFO = "ciallo"
+
+    private val secureRandom = SecureRandom()
 
     // --- CRC-8 (多项式 0x07) ---
     fun crc8(data: ByteArray, offset: Int = 0, len: Int = data.size - offset): Byte {
@@ -117,150 +120,178 @@ object CryptoUtils {
     }
 
     // --- AES-128-CTR ---
-    // 固定全零 IV：Tag 控制帧短且 BLE 链路层已加密
-    private val FIXED_IV = ByteArray(16)
-
-    fun aesCtrEncrypt(key: ByteArray, plaintext: ByteArray): ByteArray {
+    fun aesCtrEncryptWithIv(key: ByteArray, iv: ByteArray, plaintext: ByteArray): ByteArray {
         val cipher = Cipher.getInstance("AES/CTR/NoPadding")
         val secretKey = SecretKeySpec(key, "AES")
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey, IvParameterSpec(FIXED_IV))
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey, IvParameterSpec(iv))
         val result = cipher.doFinal(plaintext)
-        FileLog.d("Crypto", "AES加密 明文${plaintext.toHex()} → 密文${result.toHex()}")
+        FileLog.d("Crypto", "AES加密 IV=${iv.take(4).toByteArray().toHex()} 明文${plaintext.toHex()} → 密文${result.toHex()}")
         return result
     }
 
-    fun aesCtrDecrypt(key: ByteArray, ciphertext: ByteArray): ByteArray {
-        val cipher = Cipher.getInstance("AES/CTR/NoPadding")
-        val secretKey = SecretKeySpec(key, "AES")
-        cipher.init(Cipher.DECRYPT_MODE, secretKey, IvParameterSpec(FIXED_IV))
-        val result = cipher.doFinal(ciphertext)
-        FileLog.d("Crypto", "AES解密 密文${ciphertext.toHex()} → 明文${result.toHex()}")
-        return result
+    /** V2 随机盐加密：[Seq(1B), Salt(3B)] + AES-CTR(IV=[Seq,Salt,0..0], plaintextWithCrc) */
+    fun encryptFrameV2(plaintextWithCrc: ByteArray, aesKey: ByteArray, seq: Byte): ByteArray {
+        val salt = ByteArray(3)
+        secureRandom.nextBytes(salt)
+        val iv = ByteArray(16)
+        iv[0] = seq
+        iv[1] = salt[0]
+        iv[2] = salt[1]
+        iv[3] = salt[2]
+        val cipher = aesCtrEncryptWithIv(aesKey, iv, plaintextWithCrc)
+        val out = ByteArray(4 + cipher.size)
+        out[0] = seq
+        out[1] = salt[0]
+        out[2] = salt[1]
+        out[3] = salt[2]
+        System.arraycopy(cipher, 0, out, 4, cipher.size)
+        return out
     }
 
     // --- GATT 帧构建 ---
-    // 帧格式: [CMD][Action(可选)][CRC] → AES 加密
-    /** 构建绑定验证帧: [0x56][CRC] → AES 加密 */
-    fun buildBindVerifyFrame(aesKey: ByteArray): ByteArray {
+    // 帧格式: [Seq(1B), Salt(3B)] + AES_CTR(IV=[Seq,Salt,0..0], [CMD][Payload...][CRC])
+    /** 构建绑定验证帧: [0x56][CRC] */
+    fun buildBindVerifyFrame(aesKey: ByteArray, seq: Byte): ByteArray {
         val plaintext = byteArrayOf(YuiTagProtocol.CMD_BIND_VERIFY, 0x00.toByte())
         plaintext[1] = crc8(plaintext, 0, 1)
-        FileLog.d(TAG, "构建绑定验证帧: CMD=0x56 CRC=0x${plaintext[1].toHex()}")
-        return aesCtrEncrypt(aesKey, plaintext)
+        FileLog.d(TAG, "构建绑定验证帧: CMD=0x56 CRC=0x${plaintext[1].toHex()} seq=0x${seq.toHex()}")
+        return encryptFrameV2(plaintext, aesKey, seq)
     }
 
-    fun buildCommandFrame(cmdId: Byte, action: Byte, aesKey: ByteArray): ByteArray {
+    fun buildCommandFrame(cmdId: Byte, action: Byte, aesKey: ByteArray, seq: Byte): ByteArray {
         val plaintext = byteArrayOf(cmdId, action, 0x00.toByte())
         plaintext[2] = crc8(plaintext, 0, 2)
-        FileLog.d(TAG, "构建指令帧: CMD=0x${cmdId.toHex()} Act=0x${action.toHex()} CRC=0x${plaintext[2].toHex()}")
-        return aesCtrEncrypt(aesKey, plaintext)
+        FileLog.d(TAG, "构建指令帧: CMD=0x${cmdId.toHex()} Act=0x${action.toHex()} CRC=0x${plaintext[2].toHex()} seq=0x${seq.toHex()}")
+        return encryptFrameV2(plaintext, aesKey, seq)
     }
 
     /** 构建解绑指令帧: [0x7F][0xFF][CRC] → AES 加密 */
-    fun buildUnbindFrame(aesKey: ByteArray): ByteArray {
+    fun buildUnbindFrame(aesKey: ByteArray, seq: Byte): ByteArray {
         val plaintext = byteArrayOf(YuiTagProtocol.CMD_ID_UNBIND, YuiTagProtocol.CMD_ACTION_EXEC, 0x00.toByte())
         plaintext[2] = crc8(plaintext, 0, 2)
         FileLog.d(TAG, "构建解绑帧: CMD=0x7F Act=0xFF CRC=0x${plaintext[2].toHex()}")
-        return aesCtrEncrypt(aesKey, plaintext)
+        return encryptFrameV2(plaintext, aesKey, seq)
     }
 
     /** 构建心跳指令帧: [0x06][0xFF][CRC] → AES 加密 */
-    fun buildHeartbeatFrame(aesKey: ByteArray): ByteArray {
+    fun buildHeartbeatFrame(aesKey: ByteArray, seq: Byte): ByteArray {
         val plaintext = byteArrayOf(YuiTagProtocol.CMD_ID_HEARTBEAT, YuiTagProtocol.CMD_ACTION_EXEC, 0x00.toByte())
         plaintext[2] = crc8(plaintext, 0, 2)
-        return aesCtrEncrypt(aesKey, plaintext)
+        return encryptFrameV2(plaintext, aesKey, seq)
     }
 
     /** 构建名称写入帧: [0x4E][Name(n)][CRC] → AES 加密 */
-    fun buildNameWriteFrame(name: String, aesKey: ByteArray): ByteArray {
+    fun buildNameWriteFrame(name: String, aesKey: ByteArray, seq: Byte): ByteArray {
         val nameBytes = name.toByteArray(Charsets.UTF_8)
         val plaintext = ByteArray(1 + nameBytes.size + 1)
         plaintext[0] = YuiTagProtocol.CMD_NAME_WRITE
         System.arraycopy(nameBytes, 0, plaintext, 1, nameBytes.size)
         plaintext[plaintext.size - 1] = crc8(plaintext, 0, plaintext.size - 1)
         FileLog.d(TAG, "构建名称写入帧: Name=$name")
-        return aesCtrEncrypt(aesKey, plaintext)
+        return encryptFrameV2(plaintext, aesKey, seq)
     }
 
     /** 构建连接间隔配置帧: [0x54][Interval(2B LE)][CRC] → AES 加密 */
-    fun buildIntervalWriteFrame(intervalMs: Int, aesKey: ByteArray): ByteArray {
+    fun buildIntervalWriteFrame(intervalMs: Int, aesKey: ByteArray, seq: Byte): ByteArray {
         val plaintext = ByteArray(4)
         plaintext[0] = YuiTagProtocol.CMD_INTERVAL_CONFIG
         plaintext[1] = (intervalMs and 0xFF).toByte()
         plaintext[2] = ((intervalMs shr 8) and 0xFF).toByte()
         plaintext[3] = crc8(plaintext, 0, 3)
         FileLog.d(TAG, "构建间隔配置帧: Interval=${intervalMs}ms")
-        return aesCtrEncrypt(aesKey, plaintext)
+        return encryptFrameV2(plaintext, aesKey, seq)
     }
 
     /** 构建查找模式间隔配置帧: [0x46][Interval(2B LE)][CRC] → AES 加密 */
-    fun buildFindIntervalWriteFrame(intervalMs: Int, aesKey: ByteArray): ByteArray {
+    fun buildFindIntervalWriteFrame(intervalMs: Int, aesKey: ByteArray, seq: Byte): ByteArray {
         val plaintext = ByteArray(4)
         plaintext[0] = YuiTagProtocol.CMD_FIND_INTERVAL_CONFIG
         plaintext[1] = (intervalMs and 0xFF).toByte()
         plaintext[2] = ((intervalMs shr 8) and 0xFF).toByte()
         plaintext[3] = crc8(plaintext, 0, 3)
         FileLog.d(TAG, "构建查找间隔配置帧: Interval=${intervalMs}ms")
-        return aesCtrEncrypt(aesKey, plaintext)
+        return encryptFrameV2(plaintext, aesKey, seq)
     }
 
     /** 构建发射功率配置帧: [0x58][TxPower(1B)][CRC] → AES 加密 */
-    fun buildTxPowerConfigFrame(txPowerDbm: Int, aesKey: ByteArray): ByteArray {
+    fun buildTxPowerConfigFrame(txPowerDbm: Int, aesKey: ByteArray, seq: Byte): ByteArray {
         val plaintext = ByteArray(3)
         plaintext[0] = YuiTagProtocol.CMD_TX_POWER_CONFIG
         plaintext[1] = txPowerDbm.toByte()
         plaintext[2] = crc8(plaintext, 0, 2)
         FileLog.d(TAG, "构建发射功率配置帧: TxPower=${txPowerDbm}dBm")
-        return aesCtrEncrypt(aesKey, plaintext)
+        return encryptFrameV2(plaintext, aesKey, seq)
     }
 
     /** 构建 Find My 发射功率配置帧: [0x65][TxPower(1B)][CRC] → AES 加密 */
-    fun buildFindMyTxPowerConfigFrame(txPowerDbm: Int, aesKey: ByteArray): ByteArray {
+    fun buildFindMyTxPowerConfigFrame(txPowerDbm: Int, aesKey: ByteArray, seq: Byte): ByteArray {
         val plaintext = ByteArray(3)
         plaintext[0] = YuiTagProtocol.CMD_FINDMY_TX_POWER_CONFIG
         plaintext[1] = txPowerDbm.toByte()
         plaintext[2] = crc8(plaintext, 0, 2)
         FileLog.d(TAG, "构建FindMy发射功率配置帧: TxPower=${txPowerDbm}dBm")
-        return aesCtrEncrypt(aesKey, plaintext)
+        return encryptFrameV2(plaintext, aesKey, seq)
     }
 
     /** 构建 Find My 广播间隔配置帧: [0x67][Interval(2B LE)][CRC] → AES 加密 */
-    fun buildFindMyIntervalConfigFrame(intervalMs: Int, aesKey: ByteArray): ByteArray {
+    fun buildFindMyIntervalConfigFrame(intervalMs: Int, aesKey: ByteArray, seq: Byte): ByteArray {
         val plaintext = ByteArray(4)
         plaintext[0] = YuiTagProtocol.CMD_FINDMY_INTERVAL_CONFIG
         plaintext[1] = (intervalMs and 0xFF).toByte()
         plaintext[2] = ((intervalMs shr 8) and 0xFF).toByte()
         plaintext[3] = crc8(plaintext, 0, 3)
         FileLog.d(TAG, "构建FindMy广播间隔配置帧: Interval=${intervalMs}ms")
-        return aesCtrEncrypt(aesKey, plaintext)
+        return encryptFrameV2(plaintext, aesKey, seq)
+    }
+
+    /** 构建批量参数写入帧: [0x70][SubOp(1B)][Len(1B)][Val(nB)]...[CRC] */
+    fun buildBatchParamWriteFrame(
+        items: List<Pair<Byte, ByteArray>>,
+        aesKey: ByteArray,
+        seq: Byte
+    ): ByteArray {
+        val bodyLen = items.sumOf { 2 + it.second.size }
+        val plaintext = ByteArray(1 + bodyLen + 1)
+        plaintext[0] = YuiTagProtocol.CMD_PARAM_BATCH_WRITE
+        var offset = 1
+        for ((subOp, value) in items) {
+            plaintext[offset++] = subOp
+            plaintext[offset++] = value.size.toByte()
+            System.arraycopy(value, 0, plaintext, offset, value.size)
+            offset += value.size
+        }
+        plaintext[offset] = crc8(plaintext, 0, offset)
+        FileLog.d(TAG, "构建批量参数写入帧(0x70): items=${items.size} len=${plaintext.size}")
+        return encryptFrameV2(plaintext, aesKey, seq)
     }
 
     /** 构建 OTA 授权帧: [0x6F][0xFF][CRC] → AES 加密 */
-    fun buildOtaAuthFrame(aesKey: ByteArray): ByteArray {
+    fun buildOtaAuthFrame(aesKey: ByteArray, seq: Byte): ByteArray {
         val plaintext = byteArrayOf(YuiTagProtocol.CMD_OTA_AUTH, YuiTagProtocol.CMD_ACTION_EXEC, 0x00.toByte())
         plaintext[2] = crc8(plaintext, 0, 2)
         FileLog.d(TAG, "构建OTA授权帧: CMD=0x6F Act=0xFF CRC=0x${plaintext[2].toHex()}")
-        return aesCtrEncrypt(aesKey, plaintext)
+        return encryptFrameV2(plaintext, aesKey, seq)
     }
 
     /** 构建电池状态查询帧: [0x50][0x01][CRC] → AES 加密 */
-    fun buildBatteryRequestFrame(aesKey: ByteArray): ByteArray {
+    fun buildBatteryRequestFrame(aesKey: ByteArray, seq: Byte): ByteArray {
         val plaintext = byteArrayOf(YuiTagProtocol.CMD_BATTERY, YuiTagProtocol.CMD_ACTION_ON, 0x00.toByte())
         plaintext[2] = crc8(plaintext, 0, 2)
         FileLog.d(TAG, "构建电池请求帧: CMD=0x50")
-        return aesCtrEncrypt(aesKey, plaintext)
+        return encryptFrameV2(plaintext, aesKey, seq)
     }
 
     /** 构建 Find My 开关帧: [0x60][action][CRC] → AES 加密 */
-    fun buildFindMyEnableFrame(enabled: Boolean, aesKey: ByteArray): ByteArray {
+    fun buildFindMyEnableFrame(enabled: Boolean, aesKey: ByteArray, seq: Byte): ByteArray {
         val action = if (enabled) YuiTagProtocol.CMD_ACTION_ON else YuiTagProtocol.CMD_ACTION_OFF
         val plaintext = byteArrayOf(YuiTagProtocol.FINDMY_ENABLE, action, 0x00.toByte())
         plaintext[2] = crc8(plaintext, 0, 2)
         FileLog.d(TAG, "构建FindMy帧: enabled=$enabled")
-        return aesCtrEncrypt(aesKey, plaintext)
+        return encryptFrameV2(plaintext, aesKey, seq)
     }
 
     /** 构建 Find My 时间同步帧: [0x62][timestamp(4 LE)][CRC] → AES 加密 */
-    fun buildFindMyTimeSyncFrame(unixTime: Long, aesKey: ByteArray): ByteArray {
+    fun buildFindMyTimeSyncFrame(unixTime: Long, aesKey: ByteArray, seq: Byte): ByteArray {
         val plaintext = ByteArray(6)
         plaintext[0] = YuiTagProtocol.CMD_FINDMY_TIME_SYNC
         plaintext[1] = (unixTime and 0xFF).toByte()
@@ -269,27 +300,27 @@ object CryptoUtils {
         plaintext[4] = ((unixTime shr 24) and 0xFF).toByte()
         plaintext[5] = crc8(plaintext, 0, 5)
         FileLog.d(TAG, "构建FindMy TIME_SYNC帧: unix=$unixTime")
-        return aesCtrEncrypt(aesKey, plaintext)
+        return encryptFrameV2(plaintext, aesKey, seq)
     }
 
     /** 构建 Find My 状态查询帧: [0x63][0x01][CRC] → AES 加密 */
-    fun buildFindMyStatusFrame(aesKey: ByteArray): ByteArray {
+    fun buildFindMyStatusFrame(aesKey: ByteArray, seq: Byte): ByteArray {
         val plaintext = byteArrayOf(YuiTagProtocol.CMD_FINDMY_STATUS, YuiTagProtocol.CMD_ACTION_ON, 0x00.toByte())
         plaintext[2] = crc8(plaintext, 0, 2)
         FileLog.d(TAG, "构建FindMy STATUS帧")
-        return aesCtrEncrypt(aesKey, plaintext)
+        return encryptFrameV2(plaintext, aesKey, seq)
     }
 
     /** 构建 Find My 轮换周期配置帧: [0x64][index(1)][CRC] → AES 加密 */
-    fun buildFindMyPeriodConfigFrame(periodIndex: Int, aesKey: ByteArray): ByteArray {
+    fun buildFindMyPeriodConfigFrame(periodIndex: Int, aesKey: ByteArray, seq: Byte): ByteArray {
         val plaintext = byteArrayOf(YuiTagProtocol.CMD_FINDMY_PERIOD_CONFIG, periodIndex.toByte(), 0x00.toByte())
         plaintext[2] = crc8(plaintext, 0, 2)
         FileLog.d(TAG, "构建FindMy PERIOD_CONFIG帧: index=$periodIndex")
-        return aesCtrEncrypt(aesKey, plaintext)
+        return encryptFrameV2(plaintext, aesKey, seq)
     }
 
     /** 构建 Find My 固定密钥同步 START 帧: [0x66][0x01][Total(1B)][0x00][CRC] → AES 加密 */
-    fun buildKeysSyncStartFrame(total: Int, aesKey: ByteArray): ByteArray {
+    fun buildKeysSyncStartFrame(total: Int, aesKey: ByteArray, seq: Byte): ByteArray {
         val plaintext = byteArrayOf(
             YuiTagProtocol.CMD_FINDMY_KEYS_SYNC,
             YuiTagProtocol.SUB_OP_KEYS_START,
@@ -299,23 +330,35 @@ object CryptoUtils {
         )
         plaintext[4] = crc8(plaintext, 0, 4)
         FileLog.d(TAG, "构建KeysSync START帧: total=$total")
-        return aesCtrEncrypt(aesKey, plaintext)
+        return encryptFrameV2(plaintext, aesKey, seq)
     }
 
-    /** 构建 Find My 固定密钥同步 DATA 帧: [0x66][0x02][Index(1B)][PubKeyX(28B)][CRC] → AES 加密 */
-    fun buildKeysSyncDataFrame(index: Int, pubKeyX: ByteArray, aesKey: ByteArray): ByteArray {
-        require(pubKeyX.size == 28) { "pubKeyX must be 28 bytes" }
-        val plaintext = ByteArray(3 + 28 + 1)
+    /** 构建批量公钥同步帧: [0x66][0x02][StartIndex(1B)][KeyCount(1B)][PubKeyX*N][CRC] */
+    fun buildKeysSyncBatchDataFrame(
+        startIndex: Int,
+        pubKeysX: List<ByteArray>,
+        aesKey: ByteArray,
+        seq: Byte
+    ): ByteArray {
+        require(pubKeysX.isNotEmpty() && pubKeysX.all { it.size == 28 }) { "each pubKeyX must be 28 bytes" }
+        val count = pubKeysX.size
+        val plaintext = ByteArray(4 + count * 28 + 1)
         plaintext[0] = YuiTagProtocol.CMD_FINDMY_KEYS_SYNC
         plaintext[1] = YuiTagProtocol.SUB_OP_KEYS_DATA
-        plaintext[2] = index.toByte()
-        System.arraycopy(pubKeyX, 0, plaintext, 3, 28)
-        plaintext[31] = crc8(plaintext, 0, 31)
-        return aesCtrEncrypt(aesKey, plaintext)
+        plaintext[2] = startIndex.toByte()
+        plaintext[3] = count.toByte()
+        var offset = 4
+        for (keyX in pubKeysX) {
+            System.arraycopy(keyX, 0, plaintext, offset, 28)
+            offset += 28
+        }
+        plaintext[offset] = crc8(plaintext, 0, offset)
+        FileLog.d(TAG, "构建KeysSync批量DATA帧: startIndex=$startIndex count=$count")
+        return encryptFrameV2(plaintext, aesKey, seq)
     }
 
     /** 构建 Find My 固定密钥同步 FINISH 帧: [0x66][0x03][Total(1B)][0x00][CRC] → AES 加密 */
-    fun buildKeysSyncFinishFrame(total: Int, aesKey: ByteArray): ByteArray {
+    fun buildKeysSyncFinishFrame(total: Int, aesKey: ByteArray, seq: Byte): ByteArray {
         val plaintext = byteArrayOf(
             YuiTagProtocol.CMD_FINDMY_KEYS_SYNC,
             YuiTagProtocol.SUB_OP_KEYS_FINISH,
@@ -325,7 +368,7 @@ object CryptoUtils {
         )
         plaintext[4] = crc8(plaintext, 0, 4)
         FileLog.d(TAG, "构建KeysSync FINISH帧: total=$total")
-        return aesCtrEncrypt(aesKey, plaintext)
+        return encryptFrameV2(plaintext, aesKey, seq)
     }
 
     /** 固定 Find My 密钥实体模型 (供低配版 Sparks 轮换与解密使用) */
@@ -454,16 +497,6 @@ object CryptoUtils {
                       ((data[8].toLong() and 0xFF) shl 16) or
                       ((data[9].toLong() and 0xFF) shl 24))
         return YuiTagProtocol.FindMyStatus(synced, time, period)
-    }
-
-    /** 解密并校验 GATT 响应帧 */
-    fun decryptFrame(encrypted: ByteArray, aesKey: ByteArray): ByteArray? {
-        val plaintext = aesCtrDecrypt(aesKey, encrypted)
-        val expectedCrc = crc8(plaintext, 0, plaintext.size - 1)
-        return if (expectedCrc == plaintext.last()) plaintext else {
-            FileLog.w(TAG, "CRC 校验失败! 期望=0x${expectedCrc.toHex()} 实际=0x${plaintext.last().toHex()}")
-            null
-        }
     }
 
     // --- 哈希与椭圆曲线计算 ---

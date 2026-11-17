@@ -7,6 +7,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -14,6 +15,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * YuiTag 单设备 GATT 长连接会话。
@@ -29,19 +31,34 @@ class FindSession(
     val gatt: BluetoothGatt,
     private val cmdChar: BluetoothGattCharacteristic?,
     private val paramChar: BluetoothGattCharacteristic?,
-    private val aesKey: ByteArray?
+    private val aesKey: ByteArray?,
+    val negotiatedMtu: Int = 23
 ) {
     companion object {
         private const val TAG = "FindSession"
+        private const val HEARTBEAT_CHECK_INTERVAL_MS = 15_000L
+        private const val HEARTBEAT_IDLE_THRESHOLD_MS = 45_000L
     }
 
-    // 串行操作队列（仅 await 写/读操作持有；fire-and-forget 发送保持同步入队）
     private val opMutex = Mutex()
+    private val seqCounter = AtomicInteger(1)
+
+    /** 生成 1..255 循环请求序号（用于匹配 V2 通知回显） */
+    fun nextSeq(): Byte {
+        while (true) {
+            val s = seqCounter.getAndIncrement() and 0xFF
+            if (s != 0) return s.toByte()
+        }
+    }
 
     private var heartbeatJob: Job? = null
     private var heartbeatScope: CoroutineScope? = null
     private var disconnectRequested = false
     private var physicallyDisconnected = false
+
+    // 最近一次向设备发送任何指令/参数帧的时间戳，用于空闲保活判定
+    @Volatile
+    private var lastTxTimeMs: Long = System.currentTimeMillis()
 
     /** 会话是否已请求断开或已物理断开（供会话复用方判定可用性） */
     val isDisconnected: Boolean get() = disconnectRequested || physicallyDisconnected
@@ -55,8 +72,14 @@ class FindSession(
     // await 写入的挂起等待器（同一通道同一时刻仅允许一个挂起）
     private var pendingCmdAwait: CompletableDeferred<Boolean>? = null
     private var pendingCmdWriteAwait: CompletableDeferred<Int>? = null
+    @Volatile
+    private var expectedCmdSeq: Int? = null
+
     private var pendingParamAwait: CompletableDeferred<Boolean>? = null
     private var pendingParamWriteAwait: CompletableDeferred<Int>? = null
+    @Volatile
+    private var expectedParamSeq: Int? = null
+
     // PARAM 通道的数据型响应（如 FindMy 状态查询：[0x63][...]），按首字节匹配
     private var pendingParamDataAwait: Pair<Byte, CompletableDeferred<ByteArray>>? = null
     // 读特征值等待器（串行队列保证同时仅一个读）
@@ -87,10 +110,12 @@ class FindSession(
         pendingCmdAwait = null
         pendingCmdWriteAwait?.let { if (it.isActive) it.complete(BluetoothGatt.GATT_FAILURE) }
         pendingCmdWriteAwait = null
+        expectedCmdSeq = null
         pendingParamAwait?.let { if (it.isActive) it.complete(false) }
         pendingParamAwait = null
         pendingParamWriteAwait?.let { if (it.isActive) it.complete(BluetoothGatt.GATT_FAILURE) }
         pendingParamWriteAwait = null
+        expectedParamSeq = null
         pendingParamDataAwait?.second?.let { if (it.isActive) it.complete(ByteArray(0)) }
         pendingParamDataAwait = null
         readAwait?.let { if (it.isActive) it.complete(null) }
@@ -104,8 +129,11 @@ class FindSession(
             // 复用会话场景：会话可能已接近固件心跳超时，首包立即发出再进入周期循环
             if (immediateFirst) sendHeartbeat()
             while (isActive) {
-                delay(20_000L)
-                sendHeartbeat()
+                delay(HEARTBEAT_CHECK_INTERVAL_MS)
+                // 仅当距最近一次业务写操作超过 45s 时才补发保活包，减少空口唤醒与功耗
+                if (System.currentTimeMillis() - lastTxTimeMs >= HEARTBEAT_IDLE_THRESHOLD_MS) {
+                    sendHeartbeat()
+                }
             }
         }
     }
@@ -115,49 +143,21 @@ class FindSession(
         heartbeatJob = null
     }
 
-    private fun sendHeartbeat() {
+    private suspend fun sendHeartbeat() {
         val key = aesKey ?: return
-        val cChar = cmdChar ?: return
-        if (!disconnectRequested && !physicallyDisconnected) {
-            writeInternal(CryptoUtils.buildHeartbeatFrame(key), cChar)
+        if (disconnectRequested || physicallyDisconnected) return
+        // 当前正有 GATT 读写占用通道时跳过本次心跳（活跃写操作同样刷新固件心跳与 lastTxTimeMs）
+        if (!opMutex.tryLock()) return
+        try {
+            writeCmdNoReplyAwaitLocked(CryptoUtils.buildHeartbeatFrame(key, nextSeq()))
+        } finally {
+            opMutex.unlock()
         }
     }
 
     @SuppressLint("MissingPermission")
     fun readRssi() {
         try { gatt.readRemoteRssi() } catch (_: Exception) {}
-    }
-
-    fun sendRing(enable: Boolean): Boolean {
-        val cChar = cmdChar ?: return false
-        val key = aesKey ?: return false
-        if (!disconnectRequested && !physicallyDisconnected) {
-            return writeInternal(
-                CryptoUtils.buildCommandFrame(
-                    YuiTagProtocol.CMD_ID_RING,
-                    if (enable) YuiTagProtocol.CMD_ACTION_ON else YuiTagProtocol.CMD_ACTION_OFF,
-                    key
-                ),
-                cChar
-            )
-        }
-        return false
-    }
-
-    fun sendFindMode(enable: Boolean): Boolean {
-        val cChar = cmdChar ?: return false
-        val key = aesKey ?: return false
-        if (!disconnectRequested && !physicallyDisconnected) {
-            return writeInternal(
-                CryptoUtils.buildCommandFrame(
-                    YuiTagProtocol.CMD_ID_FIND_MODE,
-                    if (enable) YuiTagProtocol.CMD_ACTION_ON else YuiTagProtocol.CMD_ACTION_OFF,
-                    key
-                ),
-                cChar
-            )
-        }
-        return false
     }
 
     /** 挂起发送响铃指令并等待固件通知确认 */
@@ -167,7 +167,8 @@ class FindSession(
         val frame = CryptoUtils.buildCommandFrame(
             YuiTagProtocol.CMD_ID_RING,
             if (enable) YuiTagProtocol.CMD_ACTION_ON else YuiTagProtocol.CMD_ACTION_OFF,
-            key
+            key,
+            nextSeq()
         )
         return writeCmdAwait(frame, timeoutMs)
     }
@@ -179,22 +180,36 @@ class FindSession(
         val frame = CryptoUtils.buildCommandFrame(
             YuiTagProtocol.CMD_ID_FIND_MODE,
             if (enable) YuiTagProtocol.CMD_ACTION_ON else YuiTagProtocol.CMD_ACTION_OFF,
-            key
+            key,
+            nextSeq()
         )
         return writeCmdAwait(frame, timeoutMs)
     }
 
-    /** CMD 通道通知：转发状态回调 + 完成挂起的 await 写入 */
+    /** CMD 通知：校验 2B [Seq][Status] 并完成挂起请求 */
     fun handleCommandNotify(value: ByteArray) {
         val status = YuiTagProtocol.extractStatus(value)
-        onCommandNotify?.invoke(status)
-        pendingCmdAwait?.let { d ->
-            pendingCmdAwait = null
-            if (d.isActive) d.complete(status == YuiTagProtocol.STATUS_SUCCESS)
+        val respSeq = YuiTagProtocol.extractSeq(value)
+        val expSeq = expectedCmdSeq
+        if (expSeq != null) {
+            if (value.size != 2 || respSeq != expSeq) {
+                FileLog.w(TAG, "忽略不匹配 CMD 通知: 期望Seq=$expSeq actualLen=${value.size} 实际Seq=$respSeq status=0x${status.toString(16)}")
+                return
+            }
+            onCommandNotify?.invoke(status)
+            pendingCmdAwait?.let { d ->
+                pendingCmdAwait = null
+                expectedCmdSeq = null
+                if (d.isActive) d.complete(status == YuiTagProtocol.STATUS_SUCCESS)
+            }
+            return
+        }
+        if (value.size == 2) {
+            onCommandNotify?.invoke(status)
         }
     }
 
-    /** PARAM 通道通知：优先匹配数据型响应（如 FindMy 状态），其次完成挂起的 await 写入 */
+    /** PARAM 通知：优先匹配数据帧（如 FindMy 状态），其次校验 2B [Seq][Status] 完成挂起写入 */
     fun handleParamNotify(value: ByteArray) {
         val dataAwait = pendingParamDataAwait
         if (dataAwait != null && value.isNotEmpty() && value[0] == dataAwait.first) {
@@ -203,9 +218,18 @@ class FindSession(
             return
         }
         val status = YuiTagProtocol.extractStatus(value)
-        pendingParamAwait?.let { d ->
-            pendingParamAwait = null
-            if (d.isActive) d.complete(status == YuiTagProtocol.STATUS_SUCCESS)
+        val respSeq = YuiTagProtocol.extractSeq(value)
+        val expSeq = expectedParamSeq
+        if (expSeq != null) {
+            if (value.size != 2 || respSeq != expSeq) {
+                FileLog.w(TAG, "忽略不匹配 PARAM 通知: 期望Seq=$expSeq actualLen=${value.size} 实际Seq=$respSeq status=0x${status.toString(16)}")
+                return
+            }
+            pendingParamAwait?.let { d ->
+                pendingParamAwait = null
+                expectedParamSeq = null
+                if (d.isActive) d.complete(status == YuiTagProtocol.STATUS_SUCCESS)
+            }
         }
     }
 
@@ -236,6 +260,38 @@ class FindSession(
         }
     }
 
+    /** 无应答 CMD 写入（仅 opMutex 持锁期间调用，用于空闲保活） */
+    @SuppressLint("MissingPermission")
+    private suspend fun writeCmdNoReplyAwaitLocked(data: ByteArray, timeoutMs: Long = 2000L): Boolean {
+        val ch = cmdChar ?: return false
+        if (disconnectRequested || physicallyDisconnected) return false
+        if (pendingCmdAwait != null || pendingCmdWriteAwait != null) return false
+        val writeDeferred = CompletableDeferred<Int>()
+        pendingCmdWriteAwait = writeDeferred
+        expectedCmdSeq = null
+        return try {
+            ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            ch.value = data
+            if (!gatt.writeCharacteristic(ch)) {
+                pendingCmdWriteAwait = null
+                return false
+            }
+            val writeStatus = withTimeout(timeoutMs) { writeDeferred.await() }
+            val ok = writeStatus == BluetoothGatt.GATT_SUCCESS
+            if (ok) lastTxTimeMs = System.currentTimeMillis()
+            ok
+        } catch (_: TimeoutCancellationException) {
+            pendingCmdWriteAwait = null
+            false
+        } catch (e: CancellationException) {
+            pendingCmdWriteAwait = null
+            throw e
+        } catch (_: Exception) {
+            pendingCmdWriteAwait = null
+            false
+        }
+    }
+
     /** 写入 CMD 特征并等待固件响应确认（失败/超时返回 false） */
     @SuppressLint("MissingPermission")
     suspend fun writeCmdAwait(data: ByteArray, timeoutMs: Long = 8000L): Boolean =
@@ -243,38 +299,51 @@ class FindSession(
 
     private suspend fun writeCmdAwaitLocked(data: ByteArray, timeoutMs: Long): Boolean {
         val ch = cmdChar ?: return false
+        if (disconnectRequested || physicallyDisconnected) return false
+        if (data.size < YuiTagProtocol.V2_HEADER_LEN + 2 ||
+            data.size > YuiTagProtocol.V2_HEADER_LEN + YuiTagProtocol.CMD_DECRYPT_BUF_MAX_LEN
+        ) {
+            FileLog.w(TAG, "writeCmdAwait rejected: invalid V2 len=${data.size}")
+            return false
+        }
         if (pendingCmdAwait != null || pendingCmdWriteAwait != null) return false
-        // 写入前暂停心跳，避免心跳响应提前触发挂起的 await（假成功）
-        val scope = heartbeatScope
-        stopHeartbeat()
         val notifyDeferred = CompletableDeferred<Boolean>()
         val writeDeferred = CompletableDeferred<Int>()
         pendingCmdAwait = notifyDeferred
         pendingCmdWriteAwait = writeDeferred
+        expectedCmdSeq = data[0].toInt() and 0xFF
         return try {
             ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
             ch.value = data
             if (!gatt.writeCharacteristic(ch)) {
                 pendingCmdAwait = null
                 pendingCmdWriteAwait = null
+                expectedCmdSeq = null
                 return false
             }
             withTimeout(timeoutMs) {
                 val writeStatus = writeDeferred.await()
+                if (writeStatus == BluetoothGatt.GATT_SUCCESS) {
+                    lastTxTimeMs = System.currentTimeMillis()
+                }
                 val notifyOk = notifyDeferred.await()
                 writeStatus == BluetoothGatt.GATT_SUCCESS && notifyOk
             }
+        } catch (_: TimeoutCancellationException) {
+            pendingCmdAwait = null
+            pendingCmdWriteAwait = null
+            expectedCmdSeq = null
+            false
         } catch (e: CancellationException) {
             pendingCmdAwait = null
             pendingCmdWriteAwait = null
+            expectedCmdSeq = null
             throw e
         } catch (_: Exception) {
             pendingCmdAwait = null
             pendingCmdWriteAwait = null
+            expectedCmdSeq = null
             false
-        } finally {
-            // 写入完成后恢复心跳（若未断线且原本有心跳）
-            if (!disconnectRequested && !physicallyDisconnected) scope?.let { startHeartbeat(it) }
         }
     }
 
@@ -285,38 +354,51 @@ class FindSession(
 
     private suspend fun writeParamAwaitLocked(data: ByteArray, timeoutMs: Long): Boolean {
         val ch = paramChar ?: return false
+        if (disconnectRequested || physicallyDisconnected) return false
+        if (data.size < YuiTagProtocol.V2_HEADER_LEN + 2 ||
+            data.size > YuiTagProtocol.V2_HEADER_LEN + YuiTagProtocol.PARAM_DECRYPT_BUF_MAX_LEN
+        ) {
+            FileLog.w(TAG, "writeParamAwait rejected: invalid V2 len=${data.size}")
+            return false
+        }
         if (pendingParamAwait != null || pendingParamWriteAwait != null) return false
-        // 写入前暂停心跳，避免心跳响应提前触发挂起的 await（假成功）
-        val scope = heartbeatScope
-        stopHeartbeat()
         val notifyDeferred = CompletableDeferred<Boolean>()
         val writeDeferred = CompletableDeferred<Int>()
         pendingParamAwait = notifyDeferred
         pendingParamWriteAwait = writeDeferred
+        expectedParamSeq = data[0].toInt() and 0xFF
         return try {
             ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
             ch.value = data
             if (!gatt.writeCharacteristic(ch)) {
                 pendingParamAwait = null
                 pendingParamWriteAwait = null
+                expectedParamSeq = null
                 return false
             }
             withTimeout(timeoutMs) {
                 val writeStatus = writeDeferred.await()
+                if (writeStatus == BluetoothGatt.GATT_SUCCESS) {
+                    lastTxTimeMs = System.currentTimeMillis()
+                }
                 val notifyOk = notifyDeferred.await()
                 writeStatus == BluetoothGatt.GATT_SUCCESS && notifyOk
             }
+        } catch (_: TimeoutCancellationException) {
+            pendingParamAwait = null
+            pendingParamWriteAwait = null
+            expectedParamSeq = null
+            false
         } catch (e: CancellationException) {
             pendingParamAwait = null
             pendingParamWriteAwait = null
+            expectedParamSeq = null
             throw e
         } catch (_: Exception) {
             pendingParamAwait = null
             pendingParamWriteAwait = null
+            expectedParamSeq = null
             false
-        } finally {
-            // 写入完成后恢复心跳（若未断线且原本有心跳）
-            if (!disconnectRequested && !physicallyDisconnected) scope?.let { startHeartbeat(it) }
         }
     }
 
@@ -410,50 +492,57 @@ class FindSession(
 
     suspend fun sendUnbind(): Boolean {
         val key = aesKey ?: return false
-        return writeCmdAwait(CryptoUtils.buildUnbindFrame(key))
+        return writeCmdAwait(CryptoUtils.buildUnbindFrame(key, nextSeq()))
     }
 
     suspend fun writeName(name: String): Boolean {
         val key = aesKey ?: return false
-        return writeParamAwait(CryptoUtils.buildNameWriteFrame(name, key))
+        return writeParamAwait(CryptoUtils.buildNameWriteFrame(name, key, nextSeq()))
     }
 
     suspend fun writeAdvInterval(intervalMs: Int, isFindMode: Boolean): Boolean {
         val key = aesKey ?: return false
         val frame = if (isFindMode) {
-            CryptoUtils.buildFindIntervalWriteFrame(intervalMs, key)
+            CryptoUtils.buildFindIntervalWriteFrame(intervalMs, key, nextSeq())
         } else {
-            CryptoUtils.buildIntervalWriteFrame(intervalMs, key)
+            CryptoUtils.buildIntervalWriteFrame(intervalMs, key, nextSeq())
         }
         return writeParamAwait(frame)
     }
 
     suspend fun writeFindMyEnable(enabled: Boolean): Boolean {
         val key = aesKey ?: return false
-        return writeParamAwait(CryptoUtils.buildFindMyEnableFrame(enabled, key))
+        return writeParamAwait(CryptoUtils.buildFindMyEnableFrame(enabled, key, nextSeq()))
     }
 
     suspend fun timeSync(unixTime: Long): Boolean {
         val key = aesKey ?: return false
-        return writeCmdAwait(CryptoUtils.buildFindMyTimeSyncFrame(unixTime, key))
+        return writeCmdAwait(CryptoUtils.buildFindMyTimeSyncFrame(unixTime, key, nextSeq()))
     }
 
     /** 查询 Find My 状态：写 CMD 帧，等待 PARAM 通道数据型通知 */
+    @SuppressLint("MissingPermission")
     suspend fun getFindMyStatus(): YuiTagProtocol.FindMyStatus? = opMutex.withLock {
         val ch = cmdChar ?: return@withLock null
         val key = aesKey ?: return@withLock null
+        if (disconnectRequested || physicallyDisconnected) return@withLock null
         val deferred = CompletableDeferred<ByteArray>()
         val writeDeferred = CompletableDeferred<Int>()
-        pendingParamDataAwait = YuiTagProtocol.CMD_FINDMY_STATUS.toByte() to deferred
+        pendingParamDataAwait = YuiTagProtocol.CMD_FINDMY_STATUS to deferred
         pendingCmdWriteAwait = writeDeferred
         try {
             ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-            ch.value = CryptoUtils.buildFindMyStatusFrame(key)
+            ch.value = CryptoUtils.buildFindMyStatusFrame(key, nextSeq())
             if (!gatt.writeCharacteristic(ch)) return@withLock null
-            val writeStatus = writeDeferred.await()
-            if (writeStatus != BluetoothGatt.GATT_SUCCESS) return@withLock null
-            val resp = withTimeout(8000L) { deferred.await() }
+            val resp = withTimeout(8000L) {
+                val writeStatus = writeDeferred.await()
+                if (writeStatus != BluetoothGatt.GATT_SUCCESS) return@withTimeout ByteArray(0)
+                lastTxTimeMs = System.currentTimeMillis()
+                deferred.await()
+            }
             if (resp.isEmpty()) null else CryptoUtils.parseFindMyStatusResponse(resp)
+        } catch (_: TimeoutCancellationException) {
+            null
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -466,30 +555,62 @@ class FindSession(
 
     suspend fun writePeriodConfig(periodIndex: Int): Boolean {
         val key = aesKey ?: return false
-        return writeParamAwait(CryptoUtils.buildFindMyPeriodConfigFrame(periodIndex, key))
+        return writeParamAwait(CryptoUtils.buildFindMyPeriodConfigFrame(periodIndex, key, nextSeq()))
     }
 
     suspend fun writeTxPower(txPowerDbm: Int): Boolean {
         val key = aesKey ?: return false
-        return writeParamAwait(CryptoUtils.buildTxPowerConfigFrame(txPowerDbm, key))
+        return writeParamAwait(CryptoUtils.buildTxPowerConfigFrame(txPowerDbm, key, nextSeq()))
     }
 
     suspend fun writeFindMyTxPower(txPowerDbm: Int): Boolean {
         val key = aesKey ?: return false
-        return writeParamAwait(CryptoUtils.buildFindMyTxPowerConfigFrame(txPowerDbm, key))
+        return writeParamAwait(CryptoUtils.buildFindMyTxPowerConfigFrame(txPowerDbm, key, nextSeq()))
     }
 
     suspend fun writeFindMyAdvInterval(intervalMs: Int): Boolean {
         val key = aesKey ?: return false
-        return writeParamAwait(CryptoUtils.buildFindMyIntervalConfigFrame(intervalMs, key))
+        return writeParamAwait(CryptoUtils.buildFindMyIntervalConfigFrame(intervalMs, key, nextSeq()))
     }
 
-    /**
-     * 将预生成的固定密钥组同步给 Sparks 设备:
-     * 1. START(total)
-     * 2. DATA(0..total-1)
-     * 3. FINISH(total)
-     */
+    /** 批量写入 PARAM (0x70 TLV)，超出 MTU/缓冲上限时自动分片串行下发。 */
+    suspend fun writeBatchParams(items: List<Pair<Byte, ByteArray>>): Boolean {
+        if (items.isEmpty()) return true
+        val key = aesKey ?: return false
+        val maxFrameBytes = minOf(
+            (negotiatedMtu - 3).coerceAtLeast(20),
+            YuiTagProtocol.V2_HEADER_LEN + YuiTagProtocol.PARAM_DECRYPT_BUF_MAX_LEN
+        )
+        // V2 固定开销 6B (Header 4B + CMD 1B + CRC 1B)，单条 TLV 需 2 + valLen
+        val maxBodyBytes = maxFrameBytes - 6
+        if (items.any { 2 + it.second.size > maxBodyBytes }) {
+            FileLog.w(TAG, "writeBatchParams rejected: single item exceeds MTU/buffer limit (maxFrame=$maxFrameBytes)")
+            return false
+        }
+        val chunks = mutableListOf<List<Pair<Byte, ByteArray>>>()
+        val currentChunk = mutableListOf<Pair<Byte, ByteArray>>()
+        var currentBodyLen = 0
+        for (item in items) {
+            val itemLen = 2 + item.second.size
+            if (currentChunk.isNotEmpty() && currentBodyLen + itemLen > maxBodyBytes) {
+                chunks.add(currentChunk.toList())
+                currentChunk.clear()
+                currentBodyLen = 0
+            }
+            currentChunk.add(item)
+            currentBodyLen += itemLen
+        }
+        if (currentChunk.isNotEmpty()) {
+            chunks.add(currentChunk)
+        }
+        for (chunk in chunks) {
+            val frame = CryptoUtils.buildBatchParamWriteFrame(chunk, key, nextSeq())
+            if (!writeParamAwait(frame)) return false
+        }
+        return true
+    }
+
+    /** 同步固定密钥池至 Sparks (START -> 批量 DATA 1..4 把 -> FINISH)。 */
     suspend fun syncFixedKeys(
         keys: List<CryptoUtils.FixedFindMyKey>,
         onProgress: ((current: Int, total: Int) -> Unit)? = null
@@ -501,29 +622,49 @@ class FindSession(
             return false
         }
 
-        FileLog.i(TAG, "开始同步固定密钥池: 共 $total 个密钥")
+        val maxAttPayload = minOf(
+            negotiatedMtu - 3,
+            YuiTagProtocol.V2_HEADER_LEN + YuiTagProtocol.PARAM_DECRYPT_BUF_MAX_LEN
+        ).coerceAtMost(200)
+        // 批量 DATA 帧长 = Header(4B) + SubCmd(4B) + Count*28B + CRC(1B) = 9 + Count*28
+        if (maxAttPayload < 37) {
+            FileLog.w(TAG, "syncFixedKeys rejected: MTU 过小 (mtu=$negotiatedMtu, maxAttPayload=$maxAttPayload < 37)")
+            return false
+        }
+        val keysPerBatch = ((maxAttPayload - 9) / 28).coerceIn(1, 4)
+
+        FileLog.i(TAG, "开始同步固定密钥池: 共 $total 个密钥 (mtu=$negotiatedMtu, batchSize=$keysPerBatch)")
         try { gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) } catch (_: Exception) {}
 
         try {
-            // 1. 发送 START 帧
-            val startFrame = CryptoUtils.buildKeysSyncStartFrame(total, key)
+            // 1. START
+            val startFrame = CryptoUtils.buildKeysSyncStartFrame(total, key, nextSeq())
             if (!writeParamAwait(startFrame, timeoutMs = 5000L)) {
                 FileLog.w(TAG, "FixedKeys sync START 失败")
                 return false
             }
 
-            // 2. 发送各个 DATA 帧
-            for ((idx, k) in keys.withIndex()) {
-                onProgress?.invoke(idx + 1, total)
-                val dataFrame = CryptoUtils.buildKeysSyncDataFrame(idx, k.publicKeyX, key)
+            // 2. 批量 DATA (1..4 把/包)
+            var idx = 0
+            while (idx < total) {
+                val end = minOf(idx + keysPerBatch, total)
+                val batch = keys.subList(idx, end)
+                onProgress?.invoke(end, total)
+                val dataFrame = CryptoUtils.buildKeysSyncBatchDataFrame(
+                    startIndex = idx,
+                    pubKeysX = batch.map { it.publicKeyX },
+                    aesKey = key,
+                    seq = nextSeq()
+                )
                 if (!writeParamAwait(dataFrame, timeoutMs = 5000L)) {
-                    FileLog.w(TAG, "FixedKeys sync DATA 失败: 序号 $idx")
+                    FileLog.w(TAG, "FixedKeys sync 批量 DATA 失败: startIndex=$idx count=${batch.size}")
                     return false
                 }
+                idx = end
             }
 
-            // 3. 发送 FINISH 帧
-            val finishFrame = CryptoUtils.buildKeysSyncFinishFrame(total, key)
+            // 3. FINISH
+            val finishFrame = CryptoUtils.buildKeysSyncFinishFrame(total, key, nextSeq())
             if (!writeParamAwait(finishFrame, timeoutMs = 8000L)) {
                 FileLog.w(TAG, "FixedKeys sync FINISH 失败")
                 return false
@@ -572,17 +713,5 @@ class FindSession(
         stopHeartbeat()
         completePendingAwaits()
         try { gatt.disconnect() } catch (_: Exception) {}
-    }
-
-    /** 统一写入入口（fire-and-forget，断线判定统一由 GATT 断线回调处理） */
-    @SuppressLint("MissingPermission")
-    private fun writeInternal(data: ByteArray, ch: BluetoothGattCharacteristic): Boolean {
-        return try {
-            ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-            ch.value = data
-            gatt.writeCharacteristic(ch)
-        } catch (_: Exception) {
-            false
-        }
     }
 }

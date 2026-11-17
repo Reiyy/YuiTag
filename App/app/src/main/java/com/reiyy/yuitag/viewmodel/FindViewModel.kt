@@ -279,7 +279,7 @@ class FindViewModel(application: Application) : AndroidViewModel(application) {
             rippleState = RippleState.FOUND
         ) }
         dispatchLiveNotification()
-        existing.sendFindMode(true)
+        viewModelScope.launch { existing.sendFindModeAwait(true) }
         // 复用会话可能已接近固件心跳超时，立即补发首包心跳再进入周期循环
         existing.startHeartbeat(viewModelScope, immediateFirst = true)
         startGattRssiPolling(existing)
@@ -316,10 +316,10 @@ class FindViewModel(application: Application) : AndroidViewModel(application) {
                 ) }
 
                 // 发送查找指令：触发 tag 广播加速
-                session.sendFindMode(true)
+                session.sendFindModeAwait(true)
                 FileLog.i(TAG, "已发送查找模式开启指令 (0x4F,0x01)")
 
-                // 启动心跳 (每20秒)
+                // 启动空闲心跳保活（15s 轮询检查，空闲超过 45s 补发）
                 session.startHeartbeat(viewModelScope)
 
                 // 启动 GATT RSSI 轮询（双源合并）
@@ -536,29 +536,25 @@ class FindViewModel(application: Application) : AndroidViewModel(application) {
     fun sendRing() {
         val session = findSession
         if (session != null) {
-            // 切换 GATT 会话上的响铃状态
-            val currentRing = _uiState.value.ringActive
-            if (currentRing) {
-                session.sendRing(false)
-                _uiState.update { it.copy(ringActive = false) }
-            } else {
-                session.sendRing(true)
-                _uiState.update { it.copy(ringActive = true) }
-            }
+            // 经串行队列发送响铃状态切换
+            val nextRing = !_uiState.value.ringActive
+            _uiState.update { it.copy(ringActive = nextRing) }
             dispatchLiveNotification(forceImmediate = true)
+            viewModelScope.launch {
+                session.sendRingAwait(nextRing, 1500L)
+            }
         } else {
-            // 回退：经由统一会话发送响铃（fire-and-forget，与已连接路径行为一致）
+            // 回退：经由统一会话发送响铃
             val uid = targetUid ?: return
             val bleDevice = repository.getBluetoothDevice(uid) ?: return
             val device = repository.getDevice(uid)
 
             viewModelScope.launch {
                 _uiState.update { it.copy(ringBusy = true) }
-                val result = repository.bleConnectionManager.withSession(uid, bleDevice, device?.aesKey) { session ->
-                    session.sendRing(true)
-                    Unit
+                val result = repository.bleConnectionManager.withSession(uid, bleDevice, device?.aesKey) { s ->
+                    s.sendRingAwait(true, 1500L)
                 }
-                _uiState.update { it.copy(ringBusy = false, ringActive = result.isSuccess) }
+                _uiState.update { it.copy(ringBusy = false, ringActive = result.getOrNull() == true) }
                 dispatchLiveNotification(forceImmediate = true)
             }
         }

@@ -21,7 +21,7 @@ data class DeviceEntity(
     val deviceType: String = "自定义",  // 设备类型标签
     val customIcon: String = "",        // 自定义类型时的 unicode 图标（emoji/符号）
     val themePath: String = "",         // 主题包根目录路径，空=使用默认样式
-    val protocolVersion: Int = 0,       // 协议版本
+    val protocolVersion: Int = 2,       // 协议版本（默认 V2）
     val firmwareVersion: String = "",   // 固件版本（原始含|分隔的平台信息）
     val firmwarePlatform: String = "",  // 平台信息（从 FW_VERSION 拆分）
     val hardwareVersion: String = "",   // 硬件版本

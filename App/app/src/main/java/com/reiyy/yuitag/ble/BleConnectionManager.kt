@@ -116,7 +116,11 @@ class BleConnectionManager(private val gattClient: BleGattClient) {
     }
 
     /** 常驻持有：引用计数 +1。已存在同 uid 会话则直接复用。 */
-    suspend fun acquire(uid: String, device: BluetoothDevice, aesKey: ByteArray?): Result<FindSession> {
+    suspend fun acquire(
+        uid: String,
+        device: BluetoothDevice,
+        aesKey: ByteArray?
+    ): Result<FindSession> {
         val existing = sessions[uid]
         if (existing != null) {
             heldCounts.merge(uid, 1, Int::plus)

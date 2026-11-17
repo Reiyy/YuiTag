@@ -35,7 +35,7 @@ class BleScanner(private val context: Context) {
 
         // 只匹配 YuiTag 厂商数据（0x7722）：在协议栈/芯片硬件内部过滤，避免无关广播回调消耗 CPU。
         // 绑定与未绑定模式均携带厂商数据；名称解析路径保留作回退。
-        val scanFilters = listOf(YuiTagProtocol.createScanFilter())
+        val scanFilters = YuiTagProtocol.createScanFilters()
 
         val settings = ScanSettings.Builder()
             .setScanMode(scanMode)

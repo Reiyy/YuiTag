@@ -100,9 +100,17 @@ interface DeviceDao {
         coreVersion: String
     )
 
+    /** OTA 重启后清空本地版本缓存，促使详情页重新读取 DIS */
+    @Query("UPDATE devices SET firmwareVersion = '', coreVersion = '' WHERE uid = :uid")
+    suspend fun clearDeviceVersionInfo(uid: String)
+
     /** 持久化设备 MAC 地址（供直接回连使用） */
     @Query("UPDATE devices SET macAddress = :mac WHERE uid = :uid")
     suspend fun updateMacAddress(uid: String, mac: String)
+
+    /** 更新设备协议版本号 */
+    @Query("UPDATE devices SET protocolVersion = :version WHERE uid = :uid")
+    suspend fun updateProtocolVersion(uid: String, version: Int)
 
     /** 更新最近在线时间戳与最近广播 RSSI */
     @Query("UPDATE devices SET lastSeen = :lastSeen, lastRssi = :lastRssi WHERE uid = :uid")

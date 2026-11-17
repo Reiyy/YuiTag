@@ -38,41 +38,68 @@ class BleGattClient {
         private const val BIND_TIMEOUT_MS = 60000L
     }
 
-    /**
-     * 一次性事件等待器：仅当 await() 正在等待时 signal() 才生效，用于按序等待 GATT 回调。
-     *
-     * 注意：signal() 丢弃"无人等待时到达"的事件。调用方必须保证 await() 在事件回调之前置位
-     * active —— 本类仅被 bindDevice 使用，而 bindDevice 只从 Main.immediate 调度上下文调用，
-     * launch 会同步执行到首个挂起点（await），因此 BLE 回调线程不可能早于 active=true 触发。
-     * 若未来改从其他调度器调用，需重构此机制。
-     */
-    private class OneShot<T>(private val timeoutMs: Long = BleGattClient.TIMEOUT_MS) {
+    /** 一次性事件等待器：线程安全，支持提前到达事件的单槽缓冲及条件过滤（awaitMatching）。 */
+    internal class OneShot<T>(private val defaultTimeoutMs: Long = BleGattClient.TIMEOUT_MS) {
+        private val lock = Any()
         private var deferred = CompletableDeferred<T>()
         private var active = false
         private var buffered: T? = null
 
-        suspend fun await(): T? {
-            active = true
-            buffered?.let {
-                buffered = null
-                active = false
-                return it
+        suspend fun await(timeoutMs: Long = defaultTimeoutMs): T? {
+            return awaitMatching(timeoutMs, null)
+        }
+
+        suspend fun awaitMatching(
+            timeoutMs: Long = defaultTimeoutMs,
+            predicate: ((T) -> Boolean)? = null
+        ): T? {
+            val deadline = System.currentTimeMillis() + timeoutMs
+            try {
+                while (true) {
+                    var currentDeferred: CompletableDeferred<T>
+                    synchronized(lock) {
+                        active = true
+                        val b = buffered
+                        if (b != null) {
+                            buffered = null
+                            if (predicate == null || predicate(b)) {
+                                return b
+                            }
+                        }
+                        if (deferred.isCompleted) {
+                            deferred = CompletableDeferred()
+                        }
+                        currentDeferred = deferred
+                    }
+
+                    val remaining = deadline - System.currentTimeMillis()
+                    if (remaining <= 0) return null
+
+                    val item = try {
+                        withTimeout(remaining) { currentDeferred.await() }
+                    } catch (_: TimeoutCancellationException) {
+                        return null
+                    }
+
+                    if (predicate == null || predicate(item)) {
+                        return item
+                    }
+                }
+            } finally {
+                synchronized(lock) {
+                    active = false
+                    deferred = CompletableDeferred()
+                }
             }
-            val result = try {
-                withTimeout(timeoutMs) { deferred.await() }
-            } catch (_: TimeoutCancellationException) {
-                null
-            }
-            active = false
-            deferred = CompletableDeferred()
-            return result
         }
 
         fun signal(value: T) {
-            if (active && !deferred.isCompleted) {
-                deferred.complete(value)
-            } else {
-                buffered = value
+            synchronized(lock) {
+                if (active && !deferred.isCompleted) {
+                    deferred.complete(value)
+                } else {
+                    buffered = value
+                }
             }
         }
     }
@@ -82,6 +109,7 @@ class BleGattClient {
     @SuppressLint("MissingPermission")
     suspend fun bindDevice(
         device: BluetoothDevice,
+        isSparksHint: Boolean? = null,
         onProgress: ((String) -> Unit)? = null
     ): Result<BindResult> {
         FileLog.d("GATT", "══════ 开始绑定 ${device.address} ══════")
@@ -95,6 +123,13 @@ class BleGattClient {
                 var appKeyPair: CryptoUtils.EcdhKeyPair? = null
                 var aesKey: ByteArray? = null
                 var disInfo = YuiTagProtocol.DeviceDisInfo("", "", "", "", "", "")
+                var negotiatedMtu = 23
+                var bindSeqCounter = 1
+                fun nextBindSeq(): Byte {
+                    val s = bindSeqCounter and 0xFF
+                    bindSeqCounter = if (s == 255) 1 else s + 1
+                    return s.toByte()
+                }
 
                 // 服务发现时序保护：MTU 协商后立即发现服务在部分 Android 设备上会返回空或旧缓存表。
                 // 首次发现略微延后；若核心服务缺失，再通过 refresh() 清空 GATT 缓存重试。
@@ -146,9 +181,10 @@ class BleGattClient {
                 val tagPubkeyEvt = OneShot<ByteArray>()
                 val cmdCccdEvt = OneShot<Int>()
                 val paramCccdEvt = OneShot<Int>()
-                val cmdNotifyEvt = OneShot<ByteArray>(timeoutMs = 6000L)
-                val paramNotifyEvt = OneShot<ByteArray>(timeoutMs = 6000L)
-                val paramWriteEvt = OneShot<Int>(timeoutMs = 6000L)
+                val cmdWriteEvt = OneShot<Int>(defaultTimeoutMs = 6000L)
+                val cmdNotifyEvt = OneShot<ByteArray>(defaultTimeoutMs = 6000L)
+                val paramNotifyEvt = OneShot<ByteArray>(defaultTimeoutMs = 6000L)
+                val paramWriteEvt = OneShot<Int>(defaultTimeoutMs = 6000L)
                 val readEvt = OneShot<Triple<UUID, ByteArray, Int>>()
 
                 val callback = object : BluetoothGattCallback() {
@@ -177,6 +213,7 @@ class BleGattClient {
 
                     override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
                         FileLog.i(TAG, "MTU 协商完成: mtu=$mtu status=$status")
+                        if (status == BluetoothGatt.GATT_SUCCESS && mtu > 23) negotiatedMtu = mtu
                         mtuEvt.signal(status)
                         // 延后触发服务发现，避免 Android 协议栈返回旧缓存表
                         rediscoverServices(g, useRefresh = false)
@@ -233,6 +270,7 @@ class BleGattClient {
                     ) {
                         when (ch.uuid) {
                             bindUuid -> pubkeyWriteEvt.signal(status)
+                            cmdUuid -> cmdWriteEvt.signal(status)
                             paramUuid -> paramWriteEvt.signal(status)
                         }
                     }
@@ -299,7 +337,7 @@ class BleGattClient {
                         return@withTimeout failure
                     }
 
-                val isSparks = YuiTagProtocol.isSparksDevice(device.name)
+                val isSparks = isSparksHint ?: YuiTagProtocol.isSparksDevice(device.name)
 
                 // 在 launch 中执行顺序逻辑（享受协程上下文，可调用 suspend 函数）
                 launch { try {
@@ -381,13 +419,30 @@ class BleGattClient {
 
                     // 8. 发送绑定验证
                     report("正在完成...")
-                    val verifyFrame = CryptoUtils.buildBindVerifyFrame(aesKey!!)
+                    val verifySeq = nextBindSeq()
+                    val verifyFrame = CryptoUtils.buildBindVerifyFrame(aesKey!!, verifySeq)
                     cmdChar!!.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
                     cmdChar!!.value = verifyFrame
-                    if (gatt!!.writeCharacteristic(cmdChar) == false) { fail("Verify write rejected"); return@launch }
-                    val verifyResp = cmdNotifyEvt.await()
+                    val verifyWriteJob = async { cmdWriteEvt.await() }
+                    val verifyNotifyJob = async {
+                        cmdNotifyEvt.awaitMatching { resp ->
+                            resp.size == 1 || (resp.size == 2 && YuiTagProtocol.extractSeq(resp) == (verifySeq.toInt() and 0xFF))
+                        }
+                    }
+                    if (gatt!!.writeCharacteristic(cmdChar) == false) {
+                        verifyWriteJob.cancel()
+                        verifyNotifyJob.cancel()
+                        fail("Verify write rejected")
+                        return@launch
+                    }
+                    val verifyWriteStatus = verifyWriteJob.await()
+                    val verifyResp = verifyNotifyJob.await()
+                    if (verifyWriteStatus == null || verifyWriteStatus != BluetoothGatt.GATT_SUCCESS) {
+                        fail("Verify write failed: $verifyWriteStatus")
+                        return@launch
+                    }
                     if (verifyResp == null) { fail("绑定验证超时"); return@launch }
-                    val verifyStatus = YuiTagProtocol.extractStatus(verifyResp)
+                    val verifyStatus = YuiTagProtocol.extractBindVerifyStatus(verifyResp)
                     if (verifyStatus != YuiTagProtocol.BIND_VERIFY_OK) {
                         fail("绑定验证失败: ${YuiTagProtocol.statusDescription(verifyStatus)}"); return@launch
                     }
@@ -445,12 +500,17 @@ class BleGattClient {
                                 paramCccdEvt.await()
                             }
 
-                            // 辅助发送函数：同时挂起等待底层 ATT 写入完成（释放 mDeviceBusy）与固件应用层 Notify 确认
+                            // 发送 PARAM 并等待 ATT 写完成与匹配 Seq 的 Notify
                             suspend fun sendParamAwaitNotify(frame: ByteArray): Boolean {
+                                val expSeq = frame[0].toInt() and 0xFF
                                 paramC.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
                                 paramC.value = frame
                                 val writeJob = async { paramWriteEvt.await() }
-                                val notifyJob = async { paramNotifyEvt.await() }
+                                val notifyJob = async {
+                                    paramNotifyEvt.awaitMatching { resp ->
+                                        resp.size == 2 && YuiTagProtocol.extractSeq(resp) == expSeq
+                                    }
+                                }
                                 if (gatt!!.writeCharacteristic(paramC) == false) {
                                     writeJob.cancel()
                                     notifyJob.cancel()
@@ -460,34 +520,55 @@ class BleGattClient {
                                 val notifyData = notifyJob.await()
                                 return writeStatus == BluetoothGatt.GATT_SUCCESS &&
                                         notifyData != null &&
+                                        notifyData.size == 2 &&
+                                        YuiTagProtocol.extractSeq(notifyData) == expSeq &&
                                         YuiTagProtocol.extractStatus(notifyData) == YuiTagProtocol.STATUS_SUCCESS
                             }
 
-                            // 1. 发送 START 帧
+                            val maxAttPayload = minOf(
+                                negotiatedMtu - 3,
+                                YuiTagProtocol.V2_HEADER_LEN + YuiTagProtocol.PARAM_DECRYPT_BUF_MAX_LEN
+                            ).coerceAtMost(200)
+                            if (maxAttPayload < 37) {
+                                FileLog.w("GATT", "Sparks KeysSync rejected: MTU 过小 (mtu=$negotiatedMtu, maxAttPayload=$maxAttPayload < 37)")
+                                finishBind(findMyOk = false, isSparks = true); return@launch
+                            }
+                            val keysPerBatch = ((maxAttPayload - 9) / 28).coerceIn(1, 4)
+
+                            // 1. START
                             report("正在开始同步密钥...")
-                            val startFrame = CryptoUtils.buildKeysSyncStartFrame(fixedKeys.size, aesKey!!)
+                            val startFrame = CryptoUtils.buildKeysSyncStartFrame(fixedKeys.size, aesKey!!, nextBindSeq())
                             if (!sendParamAwaitNotify(startFrame)) {
                                 FileLog.w("GATT", "Sparks KeysSync START 失败")
                                 finishBind(findMyOk = false, isSparks = true); return@launch
                             }
 
-                            // 2. 发送各个 DATA 帧
+                            // 2. 批量 DATA (1..4 把/包)
                             var dataOk = true
-                            for ((idx, k) in fixedKeys.withIndex()) {
-                                report("正在同步密钥 (${idx + 1}/${fixedKeys.size})...")
-                                val dataFrame = CryptoUtils.buildKeysSyncDataFrame(idx, k.publicKeyX, aesKey!!)
+                            var idx = 0
+                            while (idx < fixedKeys.size) {
+                                val end = minOf(idx + keysPerBatch, fixedKeys.size)
+                                val batch = fixedKeys.subList(idx, end)
+                                report("正在同步密钥 ($end/${fixedKeys.size})...")
+                                val dataFrame = CryptoUtils.buildKeysSyncBatchDataFrame(
+                                    idx,
+                                    batch.map { it.publicKeyX },
+                                    aesKey!!,
+                                    nextBindSeq()
+                                )
                                 if (!sendParamAwaitNotify(dataFrame)) {
-                                    FileLog.w("GATT", "Sparks KeysSync DATA $idx 失败")
+                                    FileLog.w("GATT", "Sparks KeysSync DATA $idx..$end 失败")
                                     dataOk = false; break
                                 }
+                                idx = end
                             }
                             if (!dataOk) {
                                 finishBind(findMyOk = false, isSparks = true); return@launch
                             }
 
-                            // 3. 发送 FINISH 帧
+                            // 3. FINISH
                             report("正在校验并持久化密钥...")
-                            val finishFrame = CryptoUtils.buildKeysSyncFinishFrame(fixedKeys.size, aesKey!!)
+                            val finishFrame = CryptoUtils.buildKeysSyncFinishFrame(fixedKeys.size, aesKey!!, nextBindSeq())
                             if (!sendParamAwaitNotify(finishFrame)) {
                                 FileLog.w("GATT", "Sparks KeysSync FINISH 失败")
                                 finishBind(findMyOk = false, isSparks = true); return@launch
@@ -504,16 +585,30 @@ class BleGattClient {
                     report("正在配置FindMy...")
                     report("设备校时...")
                     val now = System.currentTimeMillis() / 1000
-                    val tsFrame = CryptoUtils.buildFindMyTimeSyncFrame(now, aesKey!!)
+                    val tsSeq = nextBindSeq()
+                    val tsFrame = CryptoUtils.buildFindMyTimeSyncFrame(now, aesKey!!, tsSeq)
                     cmdChar!!.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
                     cmdChar!!.value = tsFrame
+                    val tsWriteJob = async { cmdWriteEvt.await() }
+                    val tsNotifyJob = async {
+                        cmdNotifyEvt.awaitMatching { resp ->
+                            resp.size == 2 && YuiTagProtocol.extractSeq(resp) == (tsSeq.toInt() and 0xFF)
+                        }
+                    }
                     if (gatt!!.writeCharacteristic(cmdChar) == false) {
+                        tsWriteJob.cancel()
+                        tsNotifyJob.cancel()
                         FileLog.w("GATT", "FindMy 校时写入失败")
                         finishBind(findMyOk = false); return@launch
                     }
-                    val tsResp = cmdNotifyEvt.await()
-                    if (tsResp == null || YuiTagProtocol.extractStatus(tsResp) != YuiTagProtocol.STATUS_SUCCESS) {
-                        FileLog.w("GATT", "FindMy 校时未确认")
+                    val tsWriteStatus = tsWriteJob.await()
+                    val tsResp = tsNotifyJob.await()
+                    if (tsWriteStatus == null || tsWriteStatus != BluetoothGatt.GATT_SUCCESS ||
+                        tsResp == null || tsResp.size != 2 ||
+                        YuiTagProtocol.extractSeq(tsResp) != (tsSeq.toInt() and 0xFF) ||
+                        YuiTagProtocol.extractStatus(tsResp) != YuiTagProtocol.STATUS_SUCCESS
+                    ) {
+                        FileLog.w("GATT", "FindMy 校时未确认 (writeStatus=$tsWriteStatus)")
                         finishBind(findMyOk = false); return@launch
                     }
 
@@ -527,16 +622,30 @@ class BleGattClient {
                         gatt!!.writeDescriptor(paramCccd)
                         paramCccdEvt.await()
                     }
-                    val enFrame = CryptoUtils.buildFindMyEnableFrame(true, aesKey!!)
+                    val enSeq = nextBindSeq()
+                    val enFrame = CryptoUtils.buildFindMyEnableFrame(true, aesKey!!, enSeq)
                     paramC.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
                     paramC.value = enFrame
+                    val enWriteJob = async { paramWriteEvt.await() }
+                    val enNotifyJob = async {
+                        paramNotifyEvt.awaitMatching { resp ->
+                            resp.size == 2 && YuiTagProtocol.extractSeq(resp) == (enSeq.toInt() and 0xFF)
+                        }
+                    }
                     if (gatt!!.writeCharacteristic(paramC) == false) {
+                        enWriteJob.cancel()
+                        enNotifyJob.cancel()
                         FileLog.w("GATT", "FindMy 启用写入失败")
                         finishBind(findMyOk = false); return@launch
                     }
-                    val enResp = paramNotifyEvt.await()
-                    if (enResp == null || YuiTagProtocol.extractStatus(enResp) != YuiTagProtocol.STATUS_SUCCESS) {
-                        FileLog.w("GATT", "FindMy 启用未确认")
+                    val enWriteStatus = enWriteJob.await()
+                    val enResp = enNotifyJob.await()
+                    if (enWriteStatus == null || enWriteStatus != BluetoothGatt.GATT_SUCCESS ||
+                        enResp == null || enResp.size != 2 ||
+                        YuiTagProtocol.extractSeq(enResp) != (enSeq.toInt() and 0xFF) ||
+                        YuiTagProtocol.extractStatus(enResp) != YuiTagProtocol.STATUS_SUCCESS
+                    ) {
+                        FileLog.w("GATT", "FindMy 启用未确认 (writeStatus=$enWriteStatus)")
                         finishBind(findMyOk = false); return@launch
                     }
                     report("FindMy启动成功")
@@ -582,6 +691,7 @@ class BleGattClient {
                     var paramCccdDone = false
                     var rssiCallback: ((Int) -> Unit)? = null   // 转发 RSSI 回调至 FindSession
                     var createdSession: FindSession? = null     // 追踪已成功创建的会话实例
+                    var negotiatedMtu = 23
 
                     val svcUuid = UUID.fromString(YuiTagProtocol.CORE_SERVICE_UUID)
                     val cmdUuid = UUID.fromString(YuiTagProtocol.CMD_CHAR_UUID)
@@ -604,7 +714,7 @@ class BleGattClient {
                     fun tryCreateSession(g: BluetoothGatt) {
                         if (!cmdCccdDone || !paramCccdDone) return
                         if (createdSession != null) return
-                        val session = FindSession(g, cmdChar, paramChar, aesKey)
+                        val session = FindSession(g, cmdChar, paramChar, aesKey, negotiatedMtu)
                         createdSession = session
                         rssiCallback = { rssi -> session.onRssiRead?.invoke(rssi) }
                         if (cont.isActive) cont.resume(Result.success(session))
@@ -645,6 +755,7 @@ class BleGattClient {
 
                         override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
                             FileLog.i(TAG, "[Find] MTU=$mtu")
+                            if (status == BluetoothGatt.GATT_SUCCESS && mtu > 23) negotiatedMtu = mtu
                             g.discoverServices()
                         }
 
@@ -767,6 +878,7 @@ class BleGattClient {
                     var otaControlChar: BluetoothGattCharacteristic? = null
                     var cmdCccdDone = false
                     var authSent = false
+                    var expectedOtaSeq = 0
                     var mtuValue = 23
                     var createdSession: OtaSession? = null
 
@@ -784,8 +896,10 @@ class BleGattClient {
                     fun doSendAuth() {
                         if (!cmdCccdDone || authSent) return
                         authSent = true
-                        FileLog.i(TAG, ">>> 发送 OTA 授权加密帧 >>>")
-                        val encrypted = CryptoUtils.buildOtaAuthFrame(aesKey)
+                        val seq = 1.toByte()
+                        expectedOtaSeq = seq.toInt() and 0xFF
+                        FileLog.i(TAG, ">>> 发送 V2 OTA 授权加密帧 (seq=$expectedOtaSeq) >>>")
+                        val encrypted = CryptoUtils.buildOtaAuthFrame(aesKey, seq)
                         cmdChar?.let {
                             it.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
                             it.value = encrypted
@@ -879,7 +993,12 @@ class BleGattClient {
 
                         override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic, value: ByteArray) {
                             if (ch.uuid == cmdUuid) {
+                                val respSeq = YuiTagProtocol.extractSeq(value)
                                 val statusByte = YuiTagProtocol.extractStatus(value)
+                                if (value.size != 2 || respSeq != expectedOtaSeq) {
+                                    FileLog.w(TAG, "忽略不匹配 OTA 授权响应: 期望Seq=$expectedOtaSeq actualLen=${value.size} 实际Seq=$respSeq")
+                                    return
+                                }
                                 FileLog.i(TAG, "<<< OTA 授权响应: 0x${statusByte.toString(16)} (${YuiTagProtocol.statusDescription(statusByte)})")
                                 if (statusByte == YuiTagProtocol.STATUS_SUCCESS) {
                                     FileLog.i(TAG, "══════ OTA 授权成功! ══════")
@@ -896,19 +1015,7 @@ class BleGattClient {
                         @Suppress("DEPRECATION")
                         override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic) {
                             val value = ch.value ?: return
-                            if (ch.uuid == cmdUuid) {
-                                val statusByte = YuiTagProtocol.extractStatus(value)
-                                FileLog.i(TAG, "<<< OTA 授权响应(legacy): 0x${statusByte.toString(16)} (${YuiTagProtocol.statusDescription(statusByte)})")
-                                if (statusByte == YuiTagProtocol.STATUS_SUCCESS) {
-                                    FileLog.i(TAG, "══════ OTA 授权成功! ══════")
-                                    val session = OtaSession(g, otaControlChar, null, mtuValue)
-                                    createdSession = session
-                                    if (cont.isActive) cont.resume(Result.success(session))
-                                } else {
-                                    createdSession = OtaSession(g, otaControlChar, null, mtuValue)
-                                    fail("OTA 授权被拒绝: ${YuiTagProtocol.statusDescription(statusByte)}")
-                                }
-                            }
+                            onCharacteristicChanged(g, ch, value)
                         }
                     }
 
@@ -1064,6 +1171,8 @@ class BleGattClient {
                     var cmdCccdDone = false
                     var authSent = false
                     var authDone = false
+                    var otaSeqCounter = 1
+                    var expectedOtaSeq = 0
                     var mtuValue = 23
                     var createdSession: NcsOtaSession? = null
 
@@ -1085,8 +1194,11 @@ class BleGattClient {
                         if (!cmdCccdDone || authDone) return
                         if (authSent && authWriteRetries >= 3) return
                         authSent = true
-                        FileLog.i(TAG, ">>> 发送 NCS OTA 授权加密帧 (0x6F) (尝试第${authWriteRetries + 1}次) >>>")
-                        val encrypted = CryptoUtils.buildOtaAuthFrame(aesKey)
+                        val seq = otaSeqCounter.toByte()
+                        otaSeqCounter = if (otaSeqCounter >= 255) 1 else otaSeqCounter + 1
+                        expectedOtaSeq = seq.toInt() and 0xFF
+                        FileLog.i(TAG, ">>> 发送 V2 NCS OTA 授权加密帧 (0x6F, seq=$expectedOtaSeq, 尝试第${authWriteRetries + 1}次) >>>")
+                        val encrypted = CryptoUtils.buildOtaAuthFrame(aesKey, seq)
                         val ch = cmdChar ?: run { fail("CMD characteristic lost"); return }
                         ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
                         ch.value = encrypted
@@ -1247,7 +1359,12 @@ class BleGattClient {
                         override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic, value: ByteArray) {
                             when (ch.uuid) {
                                 cmdUuid -> {
+                                    val respSeq = YuiTagProtocol.extractSeq(value)
                                     val statusByte = YuiTagProtocol.extractStatus(value)
+                                    if (value.size != 2 || respSeq != expectedOtaSeq) {
+                                        FileLog.w(TAG, "忽略不匹配 NCS OTA 授权响应: 期望Seq=$expectedOtaSeq actualLen=${value.size} 实际Seq=$respSeq")
+                                        return
+                                    }
                                     FileLog.i(TAG, "<<< NCS OTA 授权响应: 0x${statusByte.toString(16)} (${YuiTagProtocol.statusDescription(statusByte)})")
                                     if (statusByte == YuiTagProtocol.STATUS_SUCCESS) {
                                         authDone = true

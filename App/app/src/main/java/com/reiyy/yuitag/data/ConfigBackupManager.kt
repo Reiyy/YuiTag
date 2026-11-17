@@ -7,6 +7,7 @@ import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.reiyy.yuitag.BuildConfig
 import com.reiyy.yuitag.ble.FileLog
+import com.reiyy.yuitag.ble.YuiTagProtocol
 import com.reiyy.yuitag.data.local.DeviceEntity
 import com.reiyy.yuitag.service.SeparationAlertService
 import kotlinx.coroutines.Dispatchers
@@ -102,7 +103,7 @@ object ConfigBackupManager {
         val customName: String = "",
         val deviceType: String = "",
         val customIcon: String = "",
-        val protocolVersion: Int = 0,
+        val protocolVersion: Int = YuiTagProtocol.PROTOCOL_VERSION_V2,
         val firmwareVersion: String = "",
         val firmwarePlatform: String = "",
         val hardwareVersion: String = "",
@@ -528,7 +529,7 @@ object ConfigBackupManager {
                         deviceType = bd.deviceType,
                         customIcon = bd.customIcon,
                         themePath = if (hasThemeFiles) targetThemeDir.absolutePath else "",
-                        protocolVersion = bd.protocolVersion,
+                        protocolVersion = if (bd.protocolVersion > 0) bd.protocolVersion else YuiTagProtocol.PROTOCOL_VERSION_V2,
                         firmwareVersion = bd.firmwareVersion,
                         firmwarePlatform = bd.firmwarePlatform,
                         hardwareVersion = bd.hardwareVersion,

@@ -106,6 +106,11 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
     }
     // 关闭弹窗后的短冷却（15s 内不重弹），键为 uid，值为冷却结束时间戳
     private val cooldownUntilByUid = mutableMapOf<String, Long>()
+    // V2 广播标志与校时时间戳缓存（避免短时重复校时）
+    private val adHasEcdhByUid = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    private val adTimeSyncedByUid = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    private val adTimeSyncedUpdatedAtMsByUid = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val lastTimeSyncAtMsByUid = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private var boundDevicesLoaded = false
     // initRepository 仅在首次调用时启动收集器，避免反复重组导致协程累积
     private var repositoryInitialized = false
@@ -410,6 +415,11 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
         val boundUids = _boundDevices.value.map { it.uid }.toSet()
         if (uid in boundUids) {
             found.add(uid)
+            adData?.hasEcdh?.let { adHasEcdhByUid[uid] = it }
+            adData?.timeSynced?.let {
+                adTimeSyncedByUid[uid] = it
+                adTimeSyncedUpdatedAtMsByUid[uid] = System.currentTimeMillis()
+            }
             val states = _uiState.value.deviceConnectionStates.toMutableMap()
             if (states[uid] != DeviceConnectionState.CONNECTED && states[uid] != DeviceConnectionState.ONLINE) {
                 states[uid] = DeviceConnectionState.ONLINE
@@ -418,6 +428,9 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
 
             // 周期扫描同样刷新"上次在线"（实时 rssi/lastSeen + 节流持久化）
             val existingBound = _boundDevices.value.find { it.uid == uid }
+            if (adData != null && adData.version > 0 && existingBound != null && existingBound.version != adData.version) {
+                viewModelScope.launch { repository.updateProtocolVersion(uid, adData.version) }
+            }
             val existingDevice = repository.getDevice(uid)
             val lastSeen = System.currentTimeMillis()
             repository.upsertScannedDevice(
@@ -426,7 +439,7 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
                     name = existingBound?.name ?: result.device.name ?: "YuiTag_${uid.take(4)}",
                     rssi = result.rssi,
                     txPower = 0,
-                    version = existingBound?.version ?: existingDevice?.version ?: 0,
+                    version = adData?.version ?: existingBound?.version ?: existingDevice?.version ?: YuiTagProtocol.PROTOCOL_VERSION_V2,
                     battery = adData?.battery ?: existingDevice?.battery ?: -1,
                     isBound = true,
                     aesKey = existingBound?.aesKey ?: existingDevice?.aesKey,
@@ -482,10 +495,26 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
                 // 优先执行用户传入的就绪回调（例如响铃），杜绝被耗时校时阻塞
                 if (isActive) onConnected?.invoke(session)
                 if (isActive && findmyEnabled) {
-                    launch {
-                        val synced = session.timeSync(System.currentTimeMillis() / 1000)
-                        if (synced && isActive) {
-                            Toast.makeText(getApplication(), "Tag校时成功", Toast.LENGTH_SHORT).show()
+                    val isSparksDev = (adHasEcdhByUid[uid] == false) || YuiTagProtocol.isSparks(
+                        name = device.name,
+                        platform = device.firmwarePlatform,
+                        model = device.productModel,
+                        hasFixedKeys = device.fixedKeysJson.isNotEmpty()
+                    )
+                    val nowMs = System.currentTimeMillis()
+                    val adFresh = (nowMs - (adTimeSyncedUpdatedAtMsByUid[uid] ?: 0L)) < 5 * 60_000L
+                    val alreadySyncedRecently = (adTimeSyncedByUid[uid] == true) && adFresh &&
+                        (nowMs - (lastTimeSyncAtMsByUid[uid] ?: 0L) < 6 * 3600_000L)
+                    if (!isSparksDev && !alreadySyncedRecently) {
+                        launch {
+                            val synced = session.timeSync(System.currentTimeMillis() / 1000)
+                            if (synced && isActive) {
+                                val tsNow = System.currentTimeMillis()
+                                lastTimeSyncAtMsByUid[uid] = tsNow
+                                adTimeSyncedByUid[uid] = true
+                                adTimeSyncedUpdatedAtMsByUid[uid] = tsNow
+                                Toast.makeText(getApplication(), "Tag校时成功", Toast.LENGTH_SHORT).show()
+                            }
                         }
                     }
                 }
@@ -499,7 +528,7 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private fun disconnectFromDevice(uid: String) {
+    private suspend fun disconnectFromDevice(uid: String) {
         connectJob?.cancel()
         connectJob = null
         repository.bleConnectionManager.setHeld(uid, false)
@@ -507,7 +536,7 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
         val session = repository.bleConnectionManager.getSession(uid)
         if (session != null) {
             if (_uiState.value.ringTargetUid == uid && _uiState.value.ringActive) {
-                try { session.sendRing(false) } catch (_: Exception) {}
+                try { session.sendRingAwait(false, 800L) } catch (_: Exception) {}
             }
             repository.bleConnectionManager.disconnect(uid)
         }
@@ -523,7 +552,9 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
     private fun stopRingIfActive(uid: String) {
         val session = repository.bleConnectionManager.getSession(uid)
         if (session != null && _uiState.value.ringTargetUid == uid && _uiState.value.ringActive) {
-            try { session.sendRing(false) } catch (_: Exception) {}
+            viewModelScope.launch {
+                try { session.sendRingAwait(false, 1200L) } catch (_: Exception) {}
+            }
         }
         _uiState.update { it.copy(ringActive = false, ringTargetUid = null) }
     }
@@ -644,17 +675,12 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
         if (session == null) {
             // 未连接：自动建联，连上后响铃（显式用户动作，忽略健康度/在线门槛）
             connectToDevice(uid) { s ->
-                val sent = s.sendRing(true)
-                if (sent) {
-                    _uiState.update { it.copy(ringActive = true, ringTargetUid = uid) }
-                } else {
-                    viewModelScope.launch {
-                        val ok = s.sendRingAwait(true, 1500L)
-                        if (ok) {
-                            _uiState.update { it.copy(ringActive = true, ringTargetUid = uid) }
-                        } else {
-                            Toast.makeText(getApplication(), "发送响铃指令失败，请重试", Toast.LENGTH_SHORT).show()
-                        }
+                viewModelScope.launch {
+                    val ok = s.sendRingAwait(true, 1500L)
+                    if (ok) {
+                        _uiState.update { it.copy(ringActive = true, ringTargetUid = uid) }
+                    } else {
+                        Toast.makeText(getApplication(), "发送响铃指令失败，请重试", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -664,25 +690,17 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
         val currentlyActive = _uiState.value.ringActive && _uiState.value.ringTargetUid == uid
 
         if (currentlyActive) {
-            val sent = session.sendRing(false)
             _uiState.update { it.copy(ringActive = false, ringTargetUid = null) }
-            if (!sent) {
-                viewModelScope.launch {
-                    session.sendRingAwait(false, 1500L)
-                }
+            viewModelScope.launch {
+                session.sendRingAwait(false, 1500L)
             }
         } else {
-            val sent = session.sendRing(true)
-            if (sent) {
-                _uiState.update { it.copy(ringActive = true, ringTargetUid = uid) }
-            } else {
-                viewModelScope.launch {
-                    val ok = session.sendRingAwait(true, 1500L)
-                    if (ok) {
-                        _uiState.update { it.copy(ringActive = true, ringTargetUid = uid) }
-                    } else {
-                        Toast.makeText(getApplication(), "发送响铃指令失败，请重试", Toast.LENGTH_SHORT).show()
-                    }
+            viewModelScope.launch {
+                val ok = session.sendRingAwait(true, 1500L)
+                if (ok) {
+                    _uiState.update { it.copy(ringActive = true, ringTargetUid = uid) }
+                } else {
+                    Toast.makeText(getApplication(), "发送响铃指令失败，请重试", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -705,14 +723,21 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
         _uiState.update { it.copy(bindingUid = uid, bindError = null, bindProgress = "正在连接设备...") }
 
         viewModelScope.launch {
-            val result = gattClient.bindDevice(bleDevice) { progress ->
+            flushPendingScanned()
+            val scannedDev = repository.getDevice(uid)
+            val protoVer = scannedDev?.version?.takeIf { it > 0 } ?: YuiTagProtocol.PROTOCOL_VERSION_V2
+            val isSparksHint = adHasEcdhByUid[uid]?.let { !it }
+            val result = gattClient.bindDevice(
+                device = bleDevice,
+                isSparksHint = isSparksHint
+            ) { progress ->
                 _uiState.update { it.copy(bindProgress = progress) }
             }
             result.onSuccess { bindResult ->
                 val disInfo = bindResult.disInfo
                 val device = repository.getDevice(uid)
                 val name = device?.name ?: "YuiTag_${uid.take(4)}"
-                val version = device?.version ?: 0
+                val version = (device?.version ?: 0).let { if (it > 0) it else protoVer }
 
                 val fixedKeysJson = if (bindResult.fixedKeys != null) {
                     CryptoUtils.serializeFixedKeys(bindResult.fixedKeys)
@@ -819,6 +844,7 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
                 }
                 result.onSuccess { ok ->
                     if (ok) {
+                        repository.updateFindMyEnabled(uid, true)
                         _uiState.update { it.copy(bindingUid = null, bindFindMyFailedUid = null, bindSuccessUid = uid) }
                     } else {
                         _uiState.update { it.copy(bindingUid = null, bindFindMyFailedUid = uid, bindError = "FindMy 初始化失败，请重试") }
@@ -1047,7 +1073,7 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
                     // 查找页正在使用该会话：跳过后台断开，避免杀死查找页连接
                     if (repository.bleConnectionManager.isFindPageActive(uid)) return@launch
                     if (_uiState.value.ringTargetUid == uid && _uiState.value.ringActive) {
-                        try { session.sendRing(false) } catch (_: Exception) {}
+                        try { session.sendRingAwait(false, 800L) } catch (_: Exception) {}
                     }
                     repository.bleConnectionManager.disconnect(uid)
                     updateConnectionState(uid, DeviceConnectionState.ONLINE)
@@ -1096,12 +1122,17 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
             uid = adData.shortUid
             version = adData.version
             isBound = adData.isBound
+            adData.hasEcdh?.let { adHasEcdhByUid[uid] = it }
+            adData.timeSynced?.let {
+                adTimeSyncedByUid[uid] = it
+                adTimeSyncedUpdatedAtMsByUid[uid] = System.currentTimeMillis()
+            }
             battery = adData.battery ?: (repository.getDevice(uid)?.battery ?: -1)
         } else {
             val name = device.name ?: return
             val nameUid = YuiTagProtocol.extractShortUidFromName(name) ?: return
             uid = nameUid
-            version = 0
+            version = YuiTagProtocol.PROTOCOL_VERSION_V2
             isBound = false
             battery = -1
         }
@@ -1138,6 +1169,9 @@ class MapMainViewModel(application: Application) : AndroidViewModel(application)
 
         // 持久化已绑定设备的 MAC（仅地址变化时写库）
         if (isAlreadyBound || isBound) {
+            if (version > 0 && existingBound != null && existingBound.version != version) {
+                viewModelScope.launch { repository.updateProtocolVersion(uid, version) }
+            }
             val cachedMac = existingBound?.macAddress.orEmpty()
             if (cachedMac != device.address) {
                 viewModelScope.launch { repository.saveMacAddress(uid, device.address) }

@@ -268,6 +268,19 @@ class DeviceRepository(
         }
     }
 
+    /** OTA 升级后清空本地版本信息缓存，促使下次详情页从 DIS 读取最新 FW_REV/SW_REV */
+    suspend fun clearDeviceVersionInfo(uid: String) {
+        dao.clearDeviceVersionInfo(uid)
+        _boundDevicesCache.update { current ->
+            val existing = current[uid]
+            if (existing != null) current + (uid to existing.copy(firmwareVersion = "", coreVersion = "")) else current
+        }
+        _scannedDevices.update { current ->
+            val existing = current[uid]
+            if (existing != null) current + (uid to existing.copy(firmwareVersion = "", coreVersion = "")) else current
+        }
+    }
+
     /** 更新设备配置（名称、类型、自定义图标） */
     suspend fun updateDeviceConfig(uid: String, customName: String, deviceType: DeviceType, customIcon: String) {
         dao.updateNameAndType(uid, customName, deviceType.label, customIcon)
@@ -329,6 +342,16 @@ class DeviceRepository(
     /** 更新设备广播配置（广播名称与广播间隔） */
     suspend fun updateBroadcastConfig(uid: String, broadcastName: String, advIntervalNormal: Int, advIntervalFind: Int) {
         dao.updateBroadcastConfig(uid, broadcastName, advIntervalNormal, advIntervalFind)
+        _boundDevicesCache.update { current ->
+            val existing = current[uid]
+            if (existing != null) {
+                current + (uid to existing.copy(
+                    broadcastName = broadcastName,
+                    advIntervalNormal = advIntervalNormal,
+                    advIntervalFind = advIntervalFind
+                ))
+            } else current
+        }
         _scannedDevices.update { current ->
             val existing = current[uid]
             if (existing != null) {
@@ -369,6 +392,18 @@ class DeviceRepository(
         _boundDevicesCache.update { current ->
             val existing = current[uid]
             if (existing != null) current + (uid to existing.copy(findmyAdvInterval = interval)) else current
+        }
+    }
+
+    /** 同步更新设备协议版本号 */
+    suspend fun updateProtocolVersion(uid: String, version: Int) {
+        if (version <= 0) return
+        val cached = _boundDevicesCache.value[uid]?.protocolVersion
+        if (cached == version) return
+        dao.updateProtocolVersion(uid, version)
+        _boundDevicesCache.update { current ->
+            val existing = current[uid]
+            if (existing != null) current + (uid to existing.copy(protocolVersion = version)) else current
         }
     }
 
@@ -423,6 +458,12 @@ class DeviceRepository(
     /** 更新 Find My 网络开关 */
     suspend fun updateFindMyEnabled(uid: String, enabled: Boolean) {
         dao.updateFindMyEnabled(uid, enabled)
+        _boundDevicesCache.update { current ->
+            val existing = current[uid]
+            if (existing != null) {
+                current + (uid to existing.copy(findmyEnabled = enabled))
+            } else current
+        }
         _scannedDevices.update { current ->
             val existing = current[uid]
             if (existing != null) {
@@ -434,6 +475,12 @@ class DeviceRepository(
     /** 更新 Find My 支持状态（false=设备不支持该功能） */
     suspend fun updateFindMySupport(uid: String, supported: Boolean) {
         dao.updateFindMySupport(uid, supported)
+        _boundDevicesCache.update { current ->
+            val existing = current[uid]
+            if (existing != null) {
+                current + (uid to existing.copy(findmySupported = supported))
+            } else current
+        }
         _scannedDevices.update { current ->
             val existing = current[uid]
             if (existing != null) {
@@ -445,6 +492,12 @@ class DeviceRepository(
     /** 更新 Find My 种子密钥 */
     suspend fun updateFindMySeed(uid: String, seed: ByteArray) {
         dao.updateFindMySeed(uid, seed)
+        _boundDevicesCache.update { current ->
+            val existing = current[uid]
+            if (existing != null) {
+                current + (uid to existing.copy(findmySeed = seed))
+            } else current
+        }
         _scannedDevices.update { current ->
             val existing = current[uid]
             if (existing != null) {
@@ -456,6 +509,12 @@ class DeviceRepository(
     /** 更新 Find My 轮换周期 */
     suspend fun updateFindMyPeriod(uid: String, seconds: Int) {
         dao.updateFindMyPeriod(uid, seconds)
+        _boundDevicesCache.update { current ->
+            val existing = current[uid]
+            if (existing != null) {
+                current + (uid to existing.copy(findmyPeriodSec = seconds))
+            } else current
+        }
         _scannedDevices.update { current ->
             val existing = current[uid]
             if (existing != null) {

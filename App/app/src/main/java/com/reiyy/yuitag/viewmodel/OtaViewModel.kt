@@ -534,12 +534,14 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
 
         when (lastState.get()) {
             DeviceState.APP -> {
+                uid?.let { repository.clearDeviceVersionInfo(it) }
                 _uiState.update { it.copy(isTransferring = false, completed = true, status = "固件更新完成，设备已重启进入正常模式") }
             }
             DeviceState.OTA -> {
                 _uiState.update { it.copy(isTransferring = false, error = "固件已传输，但设备仍停留在升级模式，请重试或断电重启") }
             }
             DeviceState.UNKNOWN -> {
+                uid?.let { repository.clearDeviceVersionInfo(it) }
                 _uiState.update { it.copy(isTransferring = false, completed = true, status = "固件更新完成，设备正在重启，请稍后确认") }
             }
         }

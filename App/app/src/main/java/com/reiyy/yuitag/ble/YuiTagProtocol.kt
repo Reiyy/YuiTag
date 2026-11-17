@@ -47,22 +47,26 @@ object YuiTagProtocol {
     // 厂商识别码 (Company ID)
     const val COMPANY_ID = 0x7722
 
-    // 厂商数据协议版本（广播厂商数据第一字节）
-    const val ADV_VERSION_V1 = 0x01.toByte()
+    // 厂商数据协议版本（仅 V2）
+    const val PROTOCOL_VERSION_V2 = 2
+    const val ADV_VERSION_V2 = 0x02.toByte()
 
-    /**
-     * 构造标准硬件级扫描过滤器：
-     * 显式匹配 Company ID (0x7722) 及 V1 协议版本首字节 (0x01)，掩码 0xFF。
-     * 避免部分蓝牙芯片在锁屏/休眠时由于空字节掩码导致硬件过滤被拒绝或静默丢包。
-     */
-    fun createScanFilter(): ScanFilter {
-        return ScanFilter.Builder()
-            .setManufacturerData(
-                COMPANY_ID,
-                byteArrayOf(ADV_VERSION_V1),
-                byteArrayOf(0xFF.toByte())
-            )
-            .build()
+    // 厂商数据第 4 字节 StateFlags
+    const val ADV_FLAG_BOUND       = 0x01   // Bit 0: 0=未绑定, 1=已绑定
+    const val ADV_FLAG_HAS_ECDH    = 0x02   // Bit 1: 0=Sparks无ECDH, 1=Starlight支持ECDH
+    const val ADV_FLAG_TIME_SYNCED = 0x04   // Bit 2: 0=未校时/无密钥, 1=已校时/密钥就绪
+
+    /** 硬件扫描过滤器：匹配 Company ID (0x7722) 及 V2 版本字节 (0x02)。 */
+    fun createScanFilters(): List<ScanFilter> {
+        return listOf(
+            ScanFilter.Builder()
+                .setManufacturerData(
+                    COMPANY_ID,
+                    byteArrayOf(ADV_VERSION_V2),
+                    byteArrayOf(0xFF.toByte())
+                )
+                .build()
+        )
     }
 
     // 设备名称前缀
@@ -83,6 +87,7 @@ object YuiTagProtocol {
     const val CMD_TX_POWER_CONFIG     = 0x58.toByte()   // 广播发射功率配置
     const val CMD_FINDMY_TX_POWER_CONFIG = 0x65.toByte() // Find My 广播发射功率配置
     const val FINDMY_ENABLE           = 0x60.toByte()   // Find My 网络开关
+    const val CMD_PARAM_BATCH_WRITE   = 0x70.toByte()   // 参数 TLV 批量写入
 
     // Find My 支持状态（PARAM 配置字节）
     const val FINDMY_STATUS_DISABLED    = 0x00  // 支持 Find My，但未启用
@@ -129,17 +134,23 @@ object YuiTagProtocol {
     const val BIND_VERIFY_OK   = 0x01
     const val BIND_VERIFY_FAIL = 0x00
 
-    // GATT 帧格式说明：
-    // 发送帧：[CMD(1B)][Action/Data(nB)][CRC(1B)] → AES-128-CTR 加密
-    // 通知帧：[Seq(1B)][Status(1B)] = 2 字节
+    // V2 帧格式（与固件 yuitag_config_common.h 对齐）：
+    // 请求：[Seq(1B)][Salt(3B)] + AES-CTR(IV=[Seq,Salt,0..0], [CMD(1B)][Data(nB)][CRC8])
+    // 通知：[Seq(1B)][Status(1B)]（CMD_BIND_VERIFY 阶段为 1B）
+    const val V2_HEADER_LEN = 4
+    const val CMD_DECRYPT_BUF_MAX_LEN = 40
+    const val PARAM_READ_BUF_MAX_LEN = 40
+    const val PARAM_DECRYPT_BUF_MAX_LEN = 208
 
     // --- 数据模型 ---
 
     data class ParsedAdData(
         val version: Int,
-        val shortUid: String,    // 2 字节短 UID（4 位十六进制字符）
-        val isBound: Boolean,    // true=正常模式, false=未绑定模式
-        val battery: Int?        // 电量百分比（正常模式下电量 <20% 时携带）
+        val shortUid: String,            // 2 字节短 UID（4 位十六进制字符）
+        val isBound: Boolean,            // true=正常模式, false=未绑定模式
+        val battery: Int?,               // 电量百分比（正常模式下电量 <20% 时携带）
+        val hasEcdh: Boolean? = null,    // V2 扩展: true=支持ECDH(Starlight), false=不支持(Sparks)
+        val timeSynced: Boolean? = null  // V2 扩展: true=FindMy时间/固定密钥已就绪
     )
 
     data class DeviceDisInfo(
@@ -155,7 +166,7 @@ object YuiTagProtocol {
         val productName: String get() = modelNumber.split("|").getOrElse(0) { modelNumber }.trim()
         /** 从 MODEL_NUMBER 拆分的产品型号（| 后） */
         val productModel: String get() = modelNumber.split("|").getOrElse(1) { "" }.trim()
-        /** 从 FW_VERSION 拆分的固件版本（| 前） */
+        /** 从 FW_VERSION 拆分的固件平台（| 后） */
         val firmwarePlatform: String get() = firmwareVersion.split("|").getOrElse(1) { "" }.trim()
         /** 纯固件版本号（去掉平台后缀） */
         val firmwareVer: String get() = firmwareVersion.split("|").getOrElse(0) { firmwareVersion }.trim()
@@ -188,7 +199,7 @@ object YuiTagProtocol {
 
     /**
      * 解析 PARAM 特征值 (0xAA46) 原始字节。
-     * 格式: [nameLen(1)][name(n)][advInt(2 LE)][findInt(2 LE)][findmy(1)][period(1)][txPower(1)][min(1)][max(1)][findmyTxPower(1)]
+     * 格式: [nameLen(1)][name(n)][advInt(2 LE)][findInt(2 LE)][findmy(1)][period(1)][txPower(1)][min(1)][max(1)][findmyTxPower(1)][findmyAdvInt(2 LE)]
      * 缺失字段使用默认值。
      */
     fun parseParamConfig(value: ByteArray): DeviceParamInfo {
@@ -393,22 +404,14 @@ object YuiTagProtocol {
 
     // --- 广播数据解析 ---
 
-    /**
-     * 解析自定义厂商数据（Manufacturer Specific Data）。
-     * Android 协议栈已自动剥离 2 字节 Company ID。
-     *
-     * 绑定模式：  3 字节 [版本(1)][短UID(2)]
-     * 未绑定模式：4 字节 [版本(1)][短UID(2)][绑定状态=0x00]
-     */
+    /** 解析 V2 厂商数据 [版本=0x02(1)][短UID(2)][StateFlags(1)]（协议栈已剥离 Company ID）。 */
     fun parseManufacturerData(record: ScanRecord): ParsedAdData? {
         val data = record.getManufacturerSpecificData(COMPANY_ID) ?: return null
-        if (data.size < 3) return null
+        if (data.size < 4) return null
 
         val version = data[0].toInt() and 0xFF
-
-        // 协议版本兼容性检查
-        if (!isVersionSupported(version)) {
-            FileLog.w("YuiTagProtocol", "不支持的协议版本: $version, 支持: $supportedProtocolVersions")
+        if (version != PROTOCOL_VERSION_V2) {
+            FileLog.w("YuiTagProtocol", "不支持的协议版本: $version (仅支持 V$PROTOCOL_VERSION_V2)")
             return null
         }
 
@@ -416,14 +419,23 @@ object YuiTagProtocol {
             for (i in 1..2) append("%02X".format(data[i]))
         }
 
-        val isBound = data.size < 4 || data[3].toInt() != 0x00
-
         val batteryData = record.getServiceData(BATTERY_SERVICE_UUID)
         val battery = if (batteryData != null && batteryData.isNotEmpty()) {
             batteryData[0].toInt() and 0xFF
         } else null
 
-        return ParsedAdData(version, shortUid, isBound, battery)
+        val flags = data[3].toInt() and 0xFF
+        val isBound = (flags and ADV_FLAG_BOUND) != 0
+        val hasEcdh = (flags and ADV_FLAG_HAS_ECDH) != 0
+        val timeSynced = (flags and ADV_FLAG_TIME_SYNCED) != 0
+        return ParsedAdData(
+            version = version,
+            shortUid = shortUid,
+            isBound = isBound,
+            battery = battery,
+            hasEcdh = hasEcdh,
+            timeSynced = timeSynced
+        )
     }
 
     /** 从广播名称提取短 UID（匹配末尾 4 位十六进制字符） */
@@ -445,26 +457,24 @@ object YuiTagProtocol {
     fun formatUidDisplay(uid: String): String =
         uid.chunked(2).joinToString(":") { it.uppercase() }
 
-    /** 校验 2 字节通知响应 [Seq][Status] 是否为成功 */
-    fun isNotificationSuccess(data: ByteArray): Boolean {
-        val status = when (data.size) {
-            2 -> data[1].toInt() and 0xFF
-            else -> data.firstOrNull()?.toInt()?.and(0xFF) ?: 0xFF
-        }
-        return status == STATUS_SUCCESS
-    }
+    /** 校验 [Seq][Status] 通知是否成功 */
+    fun isNotificationSuccess(data: ByteArray): Boolean =
+        data.size == 2 && (data[1].toInt() and 0xFF) == STATUS_SUCCESS
 
-    /** 从通知帧提取状态字节 */
-    fun extractStatus(data: ByteArray): Int = when (data.size) {
+    /** 提取 [Seq][Status] 状态字节，非 2B 返回 STATUS_UNKNOWN */
+    fun extractStatus(data: ByteArray): Int =
+        if (data.size == 2) data[1].toInt() and 0xFF else STATUS_UNKNOWN
+
+    /** 提取绑定验证状态（Stage 1 为 1B，兼容 2B） */
+    fun extractBindVerifyStatus(data: ByteArray): Int = when (data.size) {
+        1 -> data[0].toInt() and 0xFF
         2 -> data[1].toInt() and 0xFF
-        else -> data.firstOrNull()?.toInt()?.and(0xFF) ?: 0xFF
+        else -> STATUS_UNKNOWN
     }
 
-    /** 从通知帧提取序号字节 */
-    fun extractSeq(data: ByteArray): Int = when (data.size) {
-        2 -> data[0].toInt() and 0xFF
-        else -> 0
-    }
+    /** 提取 [Seq][Status] 序号，非 2B 返回 -1 */
+    fun extractSeq(data: ByteArray): Int =
+        if (data.size == 2) data[0].toInt() and 0xFF else -1
 
     fun statusDescription(status: Int): String = when (status) {
         STATUS_SUCCESS -> "成功"
@@ -476,64 +486,6 @@ object YuiTagProtocol {
         BIND_VERIFY_FAIL -> "绑定验证失败"
         else -> "未知状态(0x%02X)".format(status)
     }
-
-    // --- 协议版本兼容扩展 ---
-
-    /** 已知协议版本 */
-    enum class ProtocolVersion(val code: Int) {
-        V1(1);  // 当前唯一版本，后续可扩展 V2(2) 等
-
-        companion object {
-            fun fromCode(code: Int): ProtocolVersion =
-                entries.firstOrNull { it.code == code } ?: V1
-        }
-    }
-
-    /** 协议版本对应的行为差异接口 */
-    interface ProtocolHandler {
-        val version: ProtocolVersion
-
-        /** 解析制造商数据（不同版本字段布局可能不同） */
-        fun parseManufacturerData(record: ScanRecord): ParsedAdData?
-
-        /** 构建指定指令帧 */
-        fun buildCommandFrame(cmdId: Byte, action: Byte, aesKey: ByteArray): ByteArray
-
-        /** 构建心跳帧 */
-        fun buildHeartbeatFrame(aesKey: ByteArray): ByteArray
-
-        /** 构建解绑帧 */
-        fun buildUnbindFrame(aesKey: ByteArray): ByteArray
-    }
-
-    /** 默认 V1 协议处理器 */
-    private object V1Handler : ProtocolHandler {
-        override val version = ProtocolVersion.V1
-
-        override fun parseManufacturerData(record: ScanRecord): ParsedAdData? =
-            YuiTagProtocol.parseManufacturerData(record)
-
-        override fun buildCommandFrame(cmdId: Byte, action: Byte, aesKey: ByteArray): ByteArray =
-            CryptoUtils.buildCommandFrame(cmdId, action, aesKey)
-
-        override fun buildHeartbeatFrame(aesKey: ByteArray): ByteArray =
-            CryptoUtils.buildHeartbeatFrame(aesKey)
-
-        override fun buildUnbindFrame(aesKey: ByteArray): ByteArray =
-            CryptoUtils.buildUnbindFrame(aesKey)
-    }
-
-    /** 根据协议版本获取对应的处理器 */
-    fun getHandler(versionCode: Int): ProtocolHandler = when (ProtocolVersion.fromCode(versionCode)) {
-        ProtocolVersion.V1 -> V1Handler
-    }
-
-    /** 当前 APP 支持的协议版本列表 */
-    val supportedProtocolVersions: Set<Int> = setOf(ProtocolVersion.V1.code)
-
-    /** 检查协议版本是否兼容 */
-    fun isVersionSupported(versionCode: Int): Boolean =
-        versionCode in supportedProtocolVersions
 
     /** 判断是否为低配版 Sparks 设备（按默认名称前缀判断） */
     fun isSparksDevice(name: String?): Boolean =
@@ -572,4 +524,3 @@ object YuiTagProtocol {
     fun supportsOta(productModel: String): Boolean =
         productModel.trim().uppercase() !in OTA_UNSUPPORTED_MODELS
 }
-

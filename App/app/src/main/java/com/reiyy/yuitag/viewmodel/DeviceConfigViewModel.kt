@@ -313,18 +313,88 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
             val writeResult = repository.bleConnectionManager.withSession(deviceUid, bleDevice, aesKey) { session ->
                 // 逐字段写入，成功即更新数据库与本地快照
                 val failedFields = mutableListOf<String>()
+                var timeSyncOk = true
+                var timeSyncAttempted = false
+
+                if (gattFindmyChanged && findmyEnabledSafe && !state.isSparks) {
+                    timeSyncAttempted = true
+                    if (!session.timeSync(System.currentTimeMillis() / 1000)) {
+                        timeSyncOk = false
+                        failedFields += "FindMy校时"
+                    }
+                }
+                val batchItems = mutableListOf<Pair<Byte, ByteArray>>()
+                if (gattFindmyChanged && timeSyncOk) {
+                    val act = if (findmyEnabledSafe) YuiTagProtocol.CMD_ACTION_ON else YuiTagProtocol.CMD_ACTION_OFF
+                    batchItems += YuiTagProtocol.FINDMY_ENABLE to byteArrayOf(act)
+                }
+                if (gattNormalChanged) {
+                    batchItems += YuiTagProtocol.CMD_INTERVAL_CONFIG to byteArrayOf(
+                        (intervalNormal and 0xFF).toByte(),
+                        ((intervalNormal shr 8) and 0xFF).toByte()
+                    )
+                }
+                if (gattFindChanged) {
+                    batchItems += YuiTagProtocol.CMD_FIND_INTERVAL_CONFIG to byteArrayOf(
+                        (intervalFind and 0xFF).toByte(),
+                        ((intervalFind shr 8) and 0xFF).toByte()
+                    )
+                }
+                if (gattPeriodChanged) {
+                    batchItems += YuiTagProtocol.CMD_FINDMY_PERIOD_CONFIG to byteArrayOf(findmyPeriodIndexSafe.toByte())
+                }
+                if (gattTxPowerChanged && txPower != null) {
+                    batchItems += YuiTagProtocol.CMD_TX_POWER_CONFIG to byteArrayOf(txPower.toByte())
+                }
+                if (gattFindmyTxPowerChanged && findmyTxPower != null) {
+                    batchItems += YuiTagProtocol.CMD_FINDMY_TX_POWER_CONFIG to byteArrayOf(findmyTxPower.toByte())
+                }
+                if (gattFindmyIntervalChanged && findmyAdvInterval != null) {
+                    batchItems += YuiTagProtocol.CMD_FINDMY_INTERVAL_CONFIG to byteArrayOf(
+                        (findmyAdvInterval and 0xFF).toByte(),
+                        ((findmyAdvInterval shr 8) and 0xFF).toByte()
+                    )
+                }
+                if (batchItems.size >= 2 && session.writeBatchParams(batchItems)) {
+                    if (gattFindmyChanged && timeSyncOk) {
+                        repository.updateFindMyEnabled(deviceUid, findmyEnabledSafe)
+                        originalFindmyEnabled = findmyEnabledSafe
+                    }
+                    if (gattNormalChanged) originalAdvIntervalNormal = intervalNormal
+                    if (gattFindChanged) originalAdvIntervalFind = intervalFind
+                    if (gattPeriodChanged) {
+                        repository.updateFindMyPeriod(
+                            deviceUid,
+                            YuiTagProtocol.FindMyPeriod.fromIndex(findmyPeriodIndexSafe).seconds
+                        )
+                        originalFindmyPeriodIndex = findmyPeriodIndexSafe
+                    }
+                    if (gattTxPowerChanged && txPower != null) {
+                        repository.updateTxPower(deviceUid, txPower)
+                        originalTxPower = txPower
+                    }
+                    if (gattFindmyTxPowerChanged && findmyTxPower != null) {
+                        repository.updateFindMyTxPower(deviceUid, findmyTxPower)
+                        originalFindmyTxPower = findmyTxPower
+                    }
+                    if (gattFindmyIntervalChanged && findmyAdvInterval != null) {
+                        repository.updateFindMyAdvInterval(deviceUid, findmyAdvInterval)
+                        originalFindmyAdvInterval = findmyAdvInterval
+                    }
+                    return@withSession failedFields
+                }
 
                 if (gattFindmyChanged) {
-                    var findmyOk = true
-                    if (findmyEnabledSafe && !state.isSparks) {
-                        val tsFrame = CryptoUtils.buildFindMyTimeSyncFrame(System.currentTimeMillis() / 1000, aesKey)
+                    var findmyOk = timeSyncOk
+                    if (findmyEnabledSafe && !state.isSparks && !timeSyncAttempted) {
+                        val tsFrame = CryptoUtils.buildFindMyTimeSyncFrame(System.currentTimeMillis() / 1000, aesKey, session.nextSeq())
                         if (!session.writeCmdAwait(tsFrame)) {
                             findmyOk = false
                             failedFields += "FindMy校时"
                         }
                     }
                     if (findmyOk) {
-                        val enFrame = CryptoUtils.buildFindMyEnableFrame(findmyEnabledSafe, aesKey)
+                        val enFrame = CryptoUtils.buildFindMyEnableFrame(findmyEnabledSafe, aesKey, session.nextSeq())
                         if (session.writeParamAwait(enFrame)) {
                             repository.updateFindMyEnabled(deviceUid, findmyEnabledSafe)
                             originalFindmyEnabled = findmyEnabledSafe
@@ -334,7 +404,7 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
                     }
                 }
                 if (gattNormalChanged) {
-                    val frame = CryptoUtils.buildIntervalWriteFrame(intervalNormal, aesKey)
+                    val frame = CryptoUtils.buildIntervalWriteFrame(intervalNormal, aesKey, session.nextSeq())
                     if (session.writeParamAwait(frame)) {
                         originalAdvIntervalNormal = intervalNormal
                     } else {
@@ -342,7 +412,7 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
                     }
                 }
                 if (gattFindChanged) {
-                    val frame = CryptoUtils.buildFindIntervalWriteFrame(intervalFind, aesKey)
+                    val frame = CryptoUtils.buildFindIntervalWriteFrame(intervalFind, aesKey, session.nextSeq())
                     if (session.writeParamAwait(frame)) {
                         originalAdvIntervalFind = intervalFind
                     } else {
@@ -350,7 +420,7 @@ class DeviceConfigViewModel(application: Application) : AndroidViewModel(applica
                     }
                 }
                 if (gattPeriodChanged) {
-                    val frame = CryptoUtils.buildFindMyPeriodConfigFrame(findmyPeriodIndexSafe, aesKey)
+                    val frame = CryptoUtils.buildFindMyPeriodConfigFrame(findmyPeriodIndexSafe, aesKey, session.nextSeq())
                     if (session.writeParamAwait(frame)) {
                         repository.updateFindMyPeriod(deviceUid,
                             YuiTagProtocol.FindMyPeriod.fromIndex(findmyPeriodIndexSafe).seconds)
