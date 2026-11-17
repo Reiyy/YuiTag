@@ -5,18 +5,15 @@
 
 #include "yuitag_config.h"
 #include "yuitag_adv.h"
-
-#ifndef IS_SPARKS
 #include "yuitag_findmy.h"
-#endif
 
 #include <string.h>
 
 // Flags: LE General Discoverable + BR/EDR Not Supported
 #define YUITAG_ADV_FLAGS_VALUE    0x06
 
-// 厂商数据协议版本字节
-#define YUITAG_ADV_MFR_VERSION    0x01
+// 厂商数据协议版本字节 (V2)
+#define YUITAG_ADV_MFR_VERSION    YUITAG_ADV_VERSION_V2
 
 size_t yuitag_adv_build(const YuiTagDevice *dev,
                         yuitag_adv_seg_t *segs, size_t maxSegs,
@@ -40,21 +37,31 @@ size_t yuitag_adv_build(const YuiTagDevice *dev,
     pos += 1;
     count++;
 
-    // ---- 厂商自定义数据 ----
-    // 绑定:   [CompanyID(2)][版本(1)][ShortUID(2)]            = 5 字节
-    // 未绑定: [CompanyID(2)][版本(1)][ShortUID(2)][标志=0x00] = 6 字节
-    size_t mfrLen = dev->isBound ? 5 : 6;
+    // ---- 厂商数据 (6B): [CompanyID(2)][0x02(1)][ShortUID(2)][StateFlags(1)] ----
+    size_t mfrLen = 6;
     if (pos + mfrLen > storageSize) {
         return 0;
     }
+    uint8_t stateFlags = 0x00;
+    if (dev->isBound) {
+        stateFlags |= ADV_FLAG_BOUND;
+    }
+#ifndef IS_SPARKS
+    stateFlags |= ADV_FLAG_HAS_ECDH;
+    if (yuitag_findmy_is_time_live_synced()) {
+        stateFlags |= ADV_FLAG_TIME_SYNCED;
+    }
+#else
+    if (yuitag_findmy_has_keys()) {
+        stateFlags |= ADV_FLAG_TIME_SYNCED;
+    }
+#endif
     storage[pos + 0] = YUITAG_COMPANY_ID & 0xFF;
     storage[pos + 1] = (YUITAG_COMPANY_ID >> 8) & 0xFF;
     storage[pos + 2] = YUITAG_ADV_MFR_VERSION;
     storage[pos + 3] = dev->shortUid[0];
     storage[pos + 4] = dev->shortUid[1];
-    if (!dev->isBound) {
-        storage[pos + 5] = 0x00;
-    }
+    storage[pos + 5] = stateFlags;
     segs[count].type = YUITAG_ADV_TYPE_MFR;
     segs[count].data = &storage[pos];
     segs[count].len  = (uint8_t)mfrLen;

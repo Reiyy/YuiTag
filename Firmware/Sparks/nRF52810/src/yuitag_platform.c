@@ -333,10 +333,10 @@ bool platform_crypto_sha256(const uint8_t *in, size_t len, uint8_t out[32])
     return true;
 }
 
-bool platform_crypto_aes128_ctr(const uint8_t key[16], const uint8_t *in, size_t len, uint8_t *out)
+bool platform_crypto_aes128_ctr_iv(const uint8_t key[16], const uint8_t iv[16], const uint8_t *in, size_t len, uint8_t *out)
 {
     aes128_set_key(key);
-    aes128_ctr_xcrypt(in, out, len);
+    aes128_ctr_xcrypt_iv(iv, in, out, len);
     return true;
 }
 

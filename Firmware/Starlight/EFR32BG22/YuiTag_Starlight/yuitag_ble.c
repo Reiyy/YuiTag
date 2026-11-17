@@ -292,7 +292,7 @@ static void handle_param_channel_write(YuiTagDevice *dev,
         send_notify_by_ch(resp.channel, resp.data, resp.len);
     }
 
-    if (dev->pendingParamSave || dev->pendingAdvRefresh) {
+    if (dev->pendingParamSave || dev->pendingAdvRefresh || dev->pendingFindmyChange) {
         app_proceed();
     }
     yuitag_ble_update_param_value(dev);
@@ -309,7 +309,7 @@ static void gatt_write_val(uint16_t handle, const void *data, size_t len)
 
 void yuitag_ble_update_param_value(YuiTagDevice *dev)
 {
-    uint8_t buf[PARAM_DECRYPT_BUF_MAX_LEN];
+    uint8_t buf[PARAM_READ_BUF_MAX_LEN];
     size_t paramLen = yuitag_device_param_read(dev, buf, sizeof(buf));
     if (paramLen > 0) {
         gatt_write_val(gattdb_param_channel, buf, paramLen);
@@ -366,8 +366,6 @@ void yuitag_ble_on_event(sl_bt_msg_t *evt, YuiTagDevice *dev)
         }
 
         yuitag_ble_update_dis_values(dev);
-        yuitag_ble_update_param_value(dev);
-        yuitag_ble_update_advertising(dev, false);
 
         platform_log("[BOOT] YuiTag initialized");
         app_proceed();
@@ -434,21 +432,22 @@ void yuitag_ble_on_event(sl_bt_msg_t *evt, YuiTagDevice *dev)
 
     // CCCD 客户端配置状态变化
     case sl_bt_evt_gatt_server_characteristic_status_id: {
-        uint16_t chr = evt->data.evt_gatt_server_characteristic_status.characteristic;
-        uint8_t flags = evt->data.evt_gatt_server_characteristic_status.status_flags;
-        bool notif = (flags & 0x01) != 0;
+        sl_bt_evt_gatt_server_characteristic_status_t *s = &evt->data.evt_gatt_server_characteristic_status;
+        if (s->status_flags & sl_bt_gatt_server_client_config) {
+            bool notif = (s->client_config_flags & sl_bt_gatt_server_notification) != 0;
+            if (s->characteristic == gattdb_bind_channel) {
+                s_cccd_bind_enabled = notif;
+            } else if (s->characteristic == gattdb_cmd_channel) {
+                s_cccd_cmd_enabled = notif;
+            } else if (s->characteristic == gattdb_param_channel) {
+                s_cccd_param_enabled = notif;
+            }
 
-        if (chr == gattdb_bind_channel) {
-            s_cccd_bind_enabled = notif;
-        } else if (chr == gattdb_cmd_channel) {
-            s_cccd_cmd_enabled = notif;
-        } else if (chr == gattdb_param_channel) {
-            s_cccd_param_enabled = notif;
-        }
-
-        if (chr == gattdb_cmd_channel || chr == gattdb_bind_channel
-            || chr == gattdb_param_channel) {
-            platform_log("[GATT] CCCD chr=0x%04X notif=%d", chr, notif);
+            if (s->characteristic == gattdb_cmd_channel || s->characteristic == gattdb_bind_channel
+                || s->characteristic == gattdb_param_channel) {
+                platform_log("[GATT] CCCD chr=0x%04X notif=%d (ccfg=0x%04X)",
+                             s->characteristic, notif, s->client_config_flags);
+            }
         }
         break;
     }

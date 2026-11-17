@@ -41,23 +41,21 @@ static void bt_ready(int err)
 
     yuitag_ble_set_device_name(g_dev.deviceName);
     yuitag_ble_update_dis_values(&g_dev);
-    yuitag_ble_update_param_value(&g_dev);
-
-    yuitag_ble_update_advertising(&g_dev, true);
 
 #ifndef IS_SPARKS
     yuitag_findmy_init();
-    yuitag_ble_update_param_value(&g_dev);
     if (g_dev.findmyEnabled) {
         if (!yuitag_findmy_enable()) {
             g_dev.findmyEnabled = false;
             platform_log("[FINDMY] Enable failed at boot, reverting flag");
-            yuitag_ble_update_param_value(&g_dev);
         } else {
             yuitag_findmy_update_battery(g_dev.batteryLevel);
         }
     }
 #endif
+    yuitag_ble_update_param_value(&g_dev);
+
+    yuitag_ble_update_advertising(&g_dev, true);
 
     app_mark_initialized();
     platform_log("[BOOT] YuiTag initialized");

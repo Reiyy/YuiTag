@@ -30,7 +30,7 @@
 #endif
 
 /* --- 固件与设备信息 --- */
-#define FW_VERSION                 "1.0.0|SSv5"             // 固件版本 | SDK版本
+#define FW_VERSION                 "1.1.0|SSv5"             // 固件版本 | SDK版本
 #define HW_VERSION                 "V1|BG22"                 // 硬件版本 | 芯片型号
 #define MANUFACTURER               "Yuitwork Labs 唯晴科技"   // 制造商名称
 #define MODEL_NUMBER               "YuiTag Starlight|YLS05P" // 产品型号 | 内部代号

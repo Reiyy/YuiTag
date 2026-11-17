@@ -43,23 +43,21 @@ static void bt_ready(int err)
     // 4. 同步设备名称至 BLE 协议栈及 DIS 信息服务
     yuitag_ble_set_device_name(g_dev.deviceName);
     yuitag_ble_update_dis_values(&g_dev);
-    yuitag_ble_update_param_value(&g_dev);
 
-    // 5. 启动 BLE 广播 (未绑定时慢广播，已绑定时常态广播)
-    yuitag_ble_update_advertising(&g_dev, true);
-
-    // 6. 初始化 Find My 模块并在使能时启动轮换广播
+    // 5. 初始化 Find My 模块并在使能时启动轮换广播 (置于广播构建前以同步状态位)
     yuitag_findmy_init();
-    yuitag_ble_update_param_value(&g_dev);
     if (g_dev.findmyEnabled) {
         if (!yuitag_findmy_enable()) {
             g_dev.findmyEnabled = false;
             platform_log("[FINDMY] Enable failed at boot, reverting flag");
-            yuitag_ble_update_param_value(&g_dev);
         } else {
             yuitag_findmy_update_battery(g_dev.batteryLevel);
         }
     }
+    yuitag_ble_update_param_value(&g_dev);
+
+    // 6. 启动 BLE 广播 (未绑定时慢广播，已绑定时常态广播)
+    yuitag_ble_update_advertising(&g_dev, true);
 
     // 7. 标记系统初始化完成，使能异步工作队列事件调度
     app_mark_initialized();

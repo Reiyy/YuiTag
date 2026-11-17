@@ -19,6 +19,7 @@ static uint8_t  s_seed[FINDMY_SEED_LEN];
 static bool     s_seed_loaded = false;
 
 static bool     s_time_synced = false;
+static bool     s_time_live_synced = false;
 static uint32_t s_base_unix_time = 0;
 static uint64_t s_base_ms = 0;
 static uint64_t s_last_persist_ms = 0;
@@ -93,6 +94,11 @@ bool yuitag_findmy_is_time_synced(void)
     return s_time_synced;
 }
 
+bool yuitag_findmy_is_time_live_synced(void)
+{
+    return s_time_live_synced;
+}
+
 bool yuitag_findmy_time_sync(uint32_t unix_time)
 {
     if (unix_time < 1000000000UL) {
@@ -100,16 +106,24 @@ bool yuitag_findmy_time_sync(uint32_t unix_time)
         return false;
     }
 
+    bool was_synced = s_time_synced;
+    uint32_t cur_time = was_synced ? yuitag_findmy_get_current_time() : 0;
+    uint32_t diff = (unix_time >= cur_time) ? (unix_time - cur_time) : (cur_time - unix_time);
+
     s_base_unix_time = unix_time;
     s_base_ms = platform_ticks64();
     s_time_synced = true;
-    s_last_persist_ms = s_base_ms;
+    s_time_live_synced = true;
     s_key_valid = false;
 
-    save_time_state();
+    // 仅在首次同步或时间偏差 >= 60s 时立即落盘，避免每次连接校准都擦写 Flash
+    if (!was_synced || diff >= 60) {
+        s_last_persist_ms = s_base_ms;
+        save_time_state();
+    }
 
-    platform_log("[FINDMY] Time synced: unix=%lu period=%lu",
-                 unix_time, yuitag_findmy_get_current_period());
+    platform_log("[FINDMY] Time synced: unix=%lu period=%lu (persisted=%d)",
+                 unix_time, yuitag_findmy_get_current_period(), (!was_synced || diff >= 60) ? 1 : 0);
 
     return true;
 }
@@ -178,9 +192,28 @@ bool yuitag_findmy_has_seed(void)
 
 void yuitag_findmy_clear_seed(void)
 {
+    yuitag_findmy_disable();
+
     s_seed_loaded = false;
     s_key_valid = false;
+    s_cached_period = 0;
+    s_time_synced = false;
+    s_time_live_synced = false;
+    s_base_unix_time = 0;
+    s_base_ms = 0;
+    s_last_persist_ms = 0;
+    s_counter = 0;
+    s_status_byte = 0;
+    s_last_error = 0;
+    s_period_seconds = FINDMY_DEFAULT_PERIOD_SEC;
+
     memset(s_seed, 0, sizeof(s_seed));
+    memset(s_cached_key, 0, sizeof(s_cached_key));
+
+    platform_storage_remove(NVM3_KEY_FINDMY_SEED);
+    platform_storage_remove(NVM3_KEY_FINDMY_TIME_SYNCED);
+    platform_storage_remove(NVM3_KEY_FINDMY_BASE_TIME);
+    platform_storage_remove(NVM3_KEY_FINDMY_PERIOD_SEC);
 }
 
 bool yuitag_findmy_get_current_key(uint8_t keyOut[FINDMY_KEY_LEN])
@@ -447,6 +480,7 @@ void yuitag_findmy_init(void)
     s_advertising = false;
     s_key_valid = false;
     s_cached_period = 0;
+    s_time_live_synced = false;
     load_or_generate_seed();
     load_time_state();
     load_period_config();

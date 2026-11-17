@@ -32,7 +32,7 @@ void yuitag_crypto_set_aes_key(const uint8_t key[AES_KEY_LEN]);
 bool yuitag_crypto_has_aes_key(void);
 void yuitag_crypto_clear_aes_key(void);
 bool yuitag_crypto_get_aes_key(uint8_t keyOut[AES_KEY_LEN]);
-bool yuitag_crypto_aes_ctr(const uint8_t *input, size_t len, uint8_t *output);
+bool yuitag_crypto_aes_ctr_iv(const uint8_t iv[16], const uint8_t *input, size_t len, uint8_t *output);
 
 // ---- 随机密钥生成 (Sparks: 明文下发) ----
 #ifdef IS_SPARKS

@@ -13,7 +13,6 @@
 
 static psa_key_id_t s_ecdhKeyId = 0;
 static bool         s_ecdhReady = false;
-static const uint8_t s_zeroNonce[16] = { 0 };
 
 // ============================================================
 // 加密模块生命周期
@@ -39,11 +38,11 @@ bool platform_crypto_sha256(const uint8_t *in, size_t len, uint8_t out[32])
 }
 
 // ============================================================
-// AES-128-CTR (零 IV)
+// AES-128-CTR
 // ============================================================
-bool platform_crypto_aes128_ctr(const uint8_t key[16], const uint8_t *in, size_t len, uint8_t *out)
+bool platform_crypto_aes128_ctr_iv(const uint8_t key[16], const uint8_t iv[16], const uint8_t *in, size_t len, uint8_t *out)
 {
-    if (len == 0) {
+    if (len == 0 || !iv) {
         return false;
     }
 
@@ -67,7 +66,7 @@ bool platform_crypto_aes128_ctr(const uint8_t key[16], const uint8_t *in, size_t
         return false;
     }
 
-    status = psa_cipher_set_iv(&op, s_zeroNonce, sizeof(s_zeroNonce));
+    status = psa_cipher_set_iv(&op, iv, 16);
     if (status != PSA_SUCCESS) {
         psa_cipher_abort(&op);
         psa_destroy_key(key_id);

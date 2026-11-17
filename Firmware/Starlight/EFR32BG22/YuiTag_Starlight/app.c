@@ -98,17 +98,17 @@ void sl_bt_on_event(sl_bt_msg_t *evt)
 
 #ifndef IS_SPARKS
         yuitag_findmy_init();
-        yuitag_ble_update_param_value(&g_dev);
         if (g_dev.findmyEnabled) {
             if (!yuitag_findmy_enable()) {
                 g_dev.findmyEnabled = false;
                 platform_log("[FINDMY] Enable failed at boot, reverting flag");
-                yuitag_ble_update_param_value(&g_dev);
             } else {
                 yuitag_findmy_update_battery(g_dev.batteryLevel);
             }
         }
 #endif
+        yuitag_ble_update_param_value(&g_dev);
+        yuitag_ble_update_advertising(&g_dev, true);
     }
 }
 

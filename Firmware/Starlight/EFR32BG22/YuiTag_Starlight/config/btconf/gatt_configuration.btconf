@@ -68,7 +68,7 @@
     <!--Firmware Revision String-->
     <characteristic const="false" id="firmware_revision_string" name="Firmware Revision String" sourceId="org.bluetooth.characteristic.firmware_revision_string" uuid="2A26">
       <informativeText>Summary: The value of this characteristic is a UTF-8 string representing the firmware revision for the firmware within the device.</informativeText>
-      <value length="20" type="utf-8" variable_length="true">v1.2.3|SSv5</value>
+      <value length="20" type="utf-8" variable_length="true">1.1.0|SSv5</value>
       <properties>
         <read authenticated="false" bonded="false" encrypted="false"/>
       </properties>
@@ -77,7 +77,7 @@
     <!--Software Revision String-->
     <characteristic const="false" id="software_revision_string" name="Software Revision String" sourceId="org.bluetooth.characteristic.software_revision_string" uuid="2A28">
       <informativeText>Summary: The value of this characteristic is a UTF-8 string representing the software revision for the software within the device.</informativeText>
-      <value length="20" type="utf-8" variable_length="true">1.0.0</value>
+      <value length="20" type="utf-8" variable_length="true">1.1.0</value>
       <properties>
         <read authenticated="false" bonded="false" encrypted="false"/>
       </properties>
@@ -110,7 +110,7 @@
     <!--Command Channel-->
     <characteristic const="false" id="cmd_channel" name="Command Channel" sourceId="" uuid="722aaa43-8a74-432f-9055-7ed8a5584a11">
       <informativeText>Command and status channel. Write accepts encrypted command frames, notify returns status.</informativeText>
-      <value length="32" type="hex" variable_length="true"/>
+      <value length="44" type="hex" variable_length="true"/>
       <properties>
         <write authenticated="false" bonded="false" encrypted="false"/>
         <notify authenticated="false" bonded="false" encrypted="false"/>
@@ -120,7 +120,7 @@
     <!--Parameter Channel-->
     <characteristic const="false" id="param_channel" name="Parameter Channel" sourceId="" uuid="722aaa46-8a74-432f-9055-7ed8a5584a11">
       <informativeText>Device parameter configuration. Read returns name and intervals, write accepts encrypted parameter frames.</informativeText>
-      <value length="40" type="hex" variable_length="true"/>
+      <value length="212" type="hex" variable_length="true"/>
       <properties>
         <read authenticated="false" bonded="false" encrypted="false"/>
         <write authenticated="false" bonded="false" encrypted="false"/>

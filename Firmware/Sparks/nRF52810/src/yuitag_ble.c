@@ -140,7 +140,7 @@ static ssize_t read_param(struct bt_conn *conn,
                           const struct bt_gatt_attr *attr,
                           void *buf, uint16_t len, uint16_t offset)
 {
-    uint8_t paramBuf[PARAM_DECRYPT_BUF_MAX_LEN];
+    uint8_t paramBuf[PARAM_READ_BUF_MAX_LEN];
     size_t paramLen = yuitag_device_param_read(g_dev, paramBuf, sizeof(paramBuf));
     if (paramLen == 0) {
         return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
@@ -198,7 +198,8 @@ static ssize_t write_cmd(struct bt_conn *conn, const struct bt_gatt_attr *attr,
         k_work_reschedule(&s_conn_param_work, K_MSEC(CONN_PARAM_DELAY_MS));
     }
 
-    if (g_dev->pendingUnbindClear || g_dev->pendingAdvRefresh || g_dev->pendingBindAbort) {
+    if (g_dev->pendingUnbindClear || g_dev->pendingAdvRefresh || g_dev->pendingBindAbort ||
+        g_dev->pendingBindSave || g_dev->pendingParamSave || g_dev->pendingFindmyChange) {
         app_proceed();
     }
 
@@ -218,7 +219,7 @@ static ssize_t write_param(struct bt_conn *conn, const struct bt_gatt_attr *attr
         send_notify_by_ch(resp.channel, resp.data, resp.len);
     }
 
-    if (g_dev->pendingParamSave || g_dev->pendingAdvRefresh) {
+    if (g_dev->pendingParamSave || g_dev->pendingAdvRefresh || g_dev->pendingFindmyChange) {
         app_proceed();
     }
     yuitag_ble_update_param_value(g_dev);

@@ -130,12 +130,12 @@ bool yuitag_crypto_get_aes_key(uint8_t keyOut[AES_KEY_LEN])
     return true;
 }
 
-bool yuitag_crypto_aes_ctr(const uint8_t *input, size_t len, uint8_t *output)
+bool yuitag_crypto_aes_ctr_iv(const uint8_t iv[16], const uint8_t *input, size_t len, uint8_t *output)
 {
-    if (!s_aesKeyReady || len == 0) {
+    if (!s_aesKeyReady || len == 0 || !iv) {
         return false;
     }
-    return platform_crypto_aes128_ctr(s_aesKeyRaw, input, len, output);
+    return platform_crypto_aes128_ctr_iv(s_aesKeyRaw, iv, input, len, output);
 }
 
 // ============================================================

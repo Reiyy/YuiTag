@@ -20,6 +20,12 @@
 
 // ---- BLE Company ID ----
 #define YUITAG_COMPANY_ID           0x7722
+#define YUITAG_ADV_VERSION_V2       0x02
+
+// ---- Advertising StateFlags Bits (V2) ----
+#define ADV_FLAG_BOUND              0x01  // Bit 0: 1=已绑定, 0=未绑定
+#define ADV_FLAG_HAS_ECDH           0x02  // Bit 1: 1=支持ECDH(Starlight), 0=对称密钥(Sparks)
+#define ADV_FLAG_TIME_SYNCED        0x04  // Bit 2: 1=FindMy时间已同步/密钥已就绪, 0=未就绪
 
 // ---- Advertising intervals (ms) ----
 #define ADV_INTERVAL_NORMAL_MS      1500
@@ -64,7 +70,7 @@
 #define UUID16_CHAR_MFR             0x2A29
 
 // ---- YuiTagCore Module Version ----
-#define YUITAG_CORE_VERSION         "1.0.0"
+#define YUITAG_CORE_VERSION         "1.1.0"
 
 // ---- Command IDs ----
 #define CMD_HEARTBEAT               0x06
@@ -88,6 +94,7 @@
 #define CMD_FINDMY_KEYS_SYNC        0x66
 #define CMD_FINDMY_INTERVAL_CONFIG  0x67
 #define CMD_OTA_AUTHORIZE           0x6F
+#define CMD_PARAM_BATCH_WRITE       0x70
 
 // ---- FindMy Keys Sync sub-opcodes & bounds (0x66) ----
 #define SUB_OP_KEYS_START           0x01
@@ -117,8 +124,11 @@
 // ---- Frame format ----
 #define FRAME_OVERHEAD              1
 #define FRAME_MIN_LEN               3
-#define CMD_DECRYPT_BUF_MAX_LEN     32
-#define PARAM_DECRYPT_BUF_MAX_LEN   40
+#define V2_HEADER_LEN               4     // [Seq(1B), RandomSalt(3B)]
+#define CMD_DECRYPT_BUF_MAX_LEN     40
+#define PARAM_READ_BUF_MAX_LEN      40
+#define PARAM_DECRYPT_BUF_MAX_LEN   208
+
 
 // ---- Default regular BLE TX power (dBm) and hardware boundaries ----
 #ifndef DEFAULT_BLE_TX_POWER

@@ -51,6 +51,7 @@ bool     yuitag_findmy_time_sync(uint32_t unix_time);
 uint32_t yuitag_findmy_get_current_time(void);
 uint32_t yuitag_findmy_get_current_period(void);
 bool     yuitag_findmy_is_time_synced(void);
+bool     yuitag_findmy_is_time_live_synced(void);
 void     yuitag_findmy_persist_time(void);
 
 bool     yuitag_findmy_get_seed(uint8_t seedOut[FINDMY_SEED_LEN]);

@@ -129,11 +129,15 @@ void aes128_encrypt_block(const uint8_t in[AES_BLOCK_LEN], uint8_t out[AES_BLOCK
     memcpy(out, state, 16);
 }
 
-void aes128_ctr_xcrypt(const uint8_t *input, uint8_t *output, size_t len)
+void aes128_ctr_xcrypt_iv(const uint8_t iv[AES_BLOCK_LEN], const uint8_t *input, uint8_t *output, size_t len)
 {
     uint8_t counter[AES_BLOCK_LEN];
     uint8_t keystream[AES_BLOCK_LEN];
-    memset(counter, 0, AES_BLOCK_LEN);
+    if (iv != NULL) {
+        memcpy(counter, iv, AES_BLOCK_LEN);
+    } else {
+        memset(counter, 0, AES_BLOCK_LEN);
+    }
 
     for (size_t i = 0; i < len; i += AES_BLOCK_LEN) {
         aes128_encrypt_block(counter, keystream);

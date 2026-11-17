@@ -28,7 +28,7 @@
 #endif
 
 // ---- 固件与设备信息 ----
-#define FW_VERSION                  "1.0.0|NCS"
+#define FW_VERSION                  "1.1.0|NCS"
 #define HW_VERSION                  "V1|NRF52"
 #define MANUFACTURER                "Yuitwork Labs 唯晴科技"
 #define MODEL_NUMBER                "YuiTag Sparks|YLS05N"

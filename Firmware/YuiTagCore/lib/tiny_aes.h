@@ -9,6 +9,6 @@
 
 void aes128_set_key(const uint8_t key[AES128_KEY_LEN]);
 void aes128_encrypt_block(const uint8_t in[AES_BLOCK_LEN], uint8_t out[AES_BLOCK_LEN]);
-void aes128_ctr_xcrypt(const uint8_t *input, uint8_t *output, size_t len);
+void aes128_ctr_xcrypt_iv(const uint8_t iv[AES_BLOCK_LEN], const uint8_t *input, uint8_t *output, size_t len);
 
 #endif

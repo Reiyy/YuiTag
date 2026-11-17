@@ -281,41 +281,67 @@ void yuitag_device_on_disconnected(YuiTagDevice *dev)
     platform_log("[GATT] Disconnected");
 }
 
+// V2 帧解密与 CRC-8 校验: [Seq(1B), Salt(3B), AES_CTR(IV=[Seq,Salt,0..0], [CmdID, Payload..., CRC8])]
+static uint8_t decrypt_frame_v2(const uint8_t *cipherData, size_t len,
+                                uint8_t *plainOut, size_t maxPlainLen,
+                                size_t *outPlainLen, uint8_t *outSeq)
+{
+    if (outPlainLen) *outPlainLen = 0;
+    if (outSeq) *outSeq = (cipherData && len >= 1) ? cipherData[0] : 0x00;
+
+    if (!cipherData || !plainOut || len < (V2_HEADER_LEN + 2)) {
+        return STATUS_FAILED;
+    }
+
+    size_t v2Len = len - V2_HEADER_LEN;
+    if (v2Len > maxPlainLen) {
+        return STATUS_FAILED;
+    }
+
+    uint8_t iv[16] = { 0 };
+    memcpy(iv, cipherData, V2_HEADER_LEN);
+    if (!yuitag_crypto_aes_ctr_iv(iv, cipherData + V2_HEADER_LEN, v2Len, plainOut)) {
+        return STATUS_AES_DECRYPT_ERROR;
+    }
+
+    uint8_t expectedCrc = yuitag_crypto_crc8(plainOut, v2Len - 1);
+    if (expectedCrc != plainOut[v2Len - 1]) {
+        return STATUS_CRC_ERROR;
+    }
+
+    if (outPlainLen) *outPlainLen = v2Len;
+    return STATUS_SUCCESS;
+}
+
 uint8_t yuitag_device_decrypt_validate(YuiTagDevice *dev,
                                        const uint8_t *cipherData, size_t len,
                                        uint8_t *outCmdId, uint8_t *outAction,
                                        uint8_t *outPlain)
 {
-    (void)dev;
-    if (len < FRAME_MIN_LEN) {
-        platform_log("[VALIDATE] Too short: %d bytes", len);
-        return STATUS_FAILED;
-    }
-
     uint8_t plain[CMD_DECRYPT_BUF_MAX_LEN];
-    if (len > sizeof(plain)) {
-        platform_log("[VALIDATE] Too long: %d bytes", len);
+    size_t plainLen = 0;
+    uint8_t reqSeq = 0;
+
+    uint8_t status = decrypt_frame_v2(cipherData, len, plain, sizeof(plain), &plainLen, &reqSeq);
+    if (status != STATUS_SUCCESS) {
+        memset(plain, 0, sizeof(plain));
+        return status;
+    }
+    if (plainLen < FRAME_MIN_LEN) {
+        platform_log("[VALIDATE] Too short: %d bytes", plainLen);
+        memset(plain, 0, sizeof(plain));
         return STATUS_FAILED;
     }
 
-    if (!yuitag_crypto_aes_ctr(cipherData, len, plain)) {
-        return STATUS_AES_DECRYPT_ERROR;
+    if (dev) {
+        dev->lastHeartbeatMs = platform_millis();
     }
 
-    *outCmdId  = plain[0];
-    *outAction = plain[1];
+    if (outCmdId)  *outCmdId  = plain[0];
+    if (outAction) *outAction = plain[1];
+    if (outPlain)  memcpy(outPlain, plain, plainLen);
 
-    uint8_t expectedCrc = yuitag_crypto_crc8(plain, len - 1);
-    if (expectedCrc != plain[len - 1]) {
-        platform_log("[VALIDATE] CRC mismatch: expected=0x%02X got=0x%02X",
-                     expectedCrc, plain[len - 1]);
-        return STATUS_CRC_ERROR;
-    }
-
-    if (outPlain != NULL) {
-        memcpy(outPlain, plain, len);
-    }
-
+    memset(plain, 0, sizeof(plain));
     return STATUS_SUCCESS;
 }
 
@@ -486,7 +512,7 @@ bool yuitag_device_bind_verify(YuiTagDevice *dev, const uint8_t *cipherData, siz
 
     platform_log("[VERIFY] Received verify data (%d bytes)", len);
 
-    if (len != 2) {
+    if (len != (V2_HEADER_LEN + 2)) {
         platform_log("[VERIFY] Invalid length: %d", len);
         dev->waitingVerify = false;
 #ifndef IS_SPARKS
@@ -496,22 +522,14 @@ bool yuitag_device_bind_verify(YuiTagDevice *dev, const uint8_t *cipherData, siz
     }
 
     uint8_t plain[4];
-    if (!yuitag_crypto_aes_ctr(cipherData, len, plain)) {
-        platform_log("[VERIFY] AES decrypt failed");
-        dev->waitingVerify = false;
-#ifndef IS_SPARKS
-        yuitag_crypto_ecdh_cleanup();
-#endif
-        return false;
-    }
+    size_t plainLen = 0;
+    uint8_t reqSeq = 0;
+    uint8_t status = decrypt_frame_v2(cipherData, len, plain, sizeof(plain), &plainLen, &reqSeq);
 
-    uint8_t vCmd = plain[0];
-    uint8_t vCrc = plain[1];
-    uint8_t expectedCrc = yuitag_crypto_crc8(plain, 1);
-
-    if (vCmd == CMD_BIND_VERIFY && vCrc == expectedCrc) {
+    if (status == STATUS_SUCCESS && plainLen == 2 && plain[0] == CMD_BIND_VERIFY) {
         dev->isBound = true;
         dev->waitingVerify = false;
+        dev->lastHeartbeatMs = platform_millis();
 
         dev->advInterval = ADV_INTERVAL_NORMAL_MS;
         dev->savedAdvInterval = dev->advInterval;
@@ -522,11 +540,12 @@ bool yuitag_device_bind_verify(YuiTagDevice *dev, const uint8_t *cipherData, siz
 #endif
 
         platform_log("[BIND] Verify OK -> BOUND");
+        memset(plain, 0, sizeof(plain));
         return true;
     }
 
-    platform_log("[BIND] Verify failed: cmd=0x%02X crc=0x%02X(expected=0x%02X)",
-                 vCmd, vCrc, expectedCrc);
+    platform_log("[BIND] Verify failed: status=0x%02X", status);
+    memset(plain, 0, sizeof(plain));
     dev->waitingVerify = false;
 #ifndef IS_SPARKS
     yuitag_crypto_ecdh_cleanup();
@@ -662,180 +681,268 @@ size_t yuitag_device_param_read(YuiTagDevice *dev, uint8_t *buf, size_t maxLen)
     return total;
 }
 
-uint8_t yuitag_device_param_write(YuiTagDevice *dev, const uint8_t *cipherData, size_t len)
+static uint8_t validate_single_param(const YuiTagDevice *dev, uint8_t cmdId, const uint8_t *val, size_t valLen)
 {
+    (void)dev;
+    if (!val && valLen > 0) {
+        return STATUS_FAILED;
+    }
+
+    switch (cmdId) {
+    case CMD_NAME_WRITE:
+        return (valLen > 0 && valLen <= DEVICE_NAME_MAX_LEN) ? STATUS_SUCCESS : STATUS_FAILED;
+
+    case CMD_INTERVAL_CONFIG:
+    case CMD_FIND_INTERVAL_CONFIG: {
+        if (valLen < 2) {
+            return STATUS_FAILED;
+        }
+        uint16_t newInterval = (uint16_t)val[0] | ((uint16_t)val[1] << 8);
+        return (newInterval >= ADV_INTERVAL_MIN_MS && newInterval <= ADV_INTERVAL_MAX_MS)
+               ? STATUS_SUCCESS : STATUS_FAILED;
+    }
+
+    case CMD_TX_POWER_CONFIG: {
+        if (valLen < 1) {
+            return STATUS_FAILED;
+        }
+        int8_t newPower = (int8_t)val[0];
+        if (newPower < HW_TX_POWER_MIN || newPower > HW_TX_POWER_MAX) {
+            platform_log("[PARAM] TX power rejected (%d dBm out of [%d, %d])",
+                         newPower, HW_TX_POWER_MIN, HW_TX_POWER_MAX);
+            return STATUS_FAILED;
+        }
+        return STATUS_SUCCESS;
+    }
+
+    case CMD_FINDMY_ENABLE: {
+        if (valLen < 1) {
+            return STATUS_FAILED;
+        }
+        uint8_t action = val[0];
+        if (action == ACTION_ON) {
+#ifndef IS_SPARKS
+            if (!yuitag_findmy_is_time_synced()) {
+                platform_log("[PARAM] FindMy enable rejected: time not synced");
+                return STATUS_FAILED;
+            }
+#else
+            uint16_t count = platform_storage_load_u16(NVM3_KEY_FINDMY_KEY_COUNT, 0);
+            if (count < FINDMY_MIN_KEYS) {
+                platform_log("[PARAM] FindMy enable rejected: no keys configured (%d)", count);
+                return STATUS_FAILED;
+            }
+#endif
+            return STATUS_SUCCESS;
+        }
+        return (action == ACTION_OFF) ? STATUS_SUCCESS : STATUS_FAILED;
+    }
+
+    case CMD_FINDMY_PERIOD_CONFIG:
+        return (valLen >= 1) ? STATUS_SUCCESS : STATUS_FAILED;
+
+    case CMD_FINDMY_TX_POWER_CONFIG: {
+        if (valLen < 1) {
+            return STATUS_FAILED;
+        }
+        int8_t newPower = (int8_t)val[0];
+        if (newPower < HW_TX_POWER_MIN || newPower > HW_TX_POWER_MAX) {
+            platform_log("[PARAM] FindMy TX power rejected (%d dBm out of [%d, %d])",
+                         newPower, HW_TX_POWER_MIN, HW_TX_POWER_MAX);
+            return STATUS_FAILED;
+        }
+        return STATUS_SUCCESS;
+    }
+
+    case CMD_FINDMY_INTERVAL_CONFIG: {
+        if (valLen < 2) {
+            return STATUS_FAILED;
+        }
+        uint16_t newInterval = (uint16_t)val[0] | ((uint16_t)val[1] << 8);
+        if (newInterval < FINDMY_ADV_INTERVAL_MIN_MS || newInterval > FINDMY_ADV_INTERVAL_MAX_MS) {
+            platform_log("[PARAM] FindMy adv interval rejected (%dms out of [%d, %d])",
+                         newInterval, FINDMY_ADV_INTERVAL_MIN_MS, FINDMY_ADV_INTERVAL_MAX_MS);
+            return STATUS_FAILED;
+        }
+        return STATUS_SUCCESS;
+    }
+
+    default:
+        return STATUS_UNKNOWN_CMD;
+    }
+}
+
+static uint8_t apply_single_param(YuiTagDevice *dev, uint8_t cmdId, const uint8_t *val, size_t valLen)
+{
+    uint8_t status = validate_single_param(dev, cmdId, val, valLen);
+    if (status != STATUS_SUCCESS) {
+        return status;
+    }
+
+    switch (cmdId) {
+    case CMD_NAME_WRITE: {
+        memcpy(dev->deviceName, val, valLen);
+        dev->deviceName[valLen] = '\0';
+        dev->pendingParamSave = true;
+        platform_ble_set_device_name(dev->deviceName);
+        dev->pendingAdvRefresh = true;
+        platform_log("[PARAM] Name: %s", dev->deviceName);
+        return STATUS_SUCCESS;
+    }
+    case CMD_INTERVAL_CONFIG: {
+        uint16_t newInterval = (uint16_t)val[0] | ((uint16_t)val[1] << 8);
+        dev->advInterval = newInterval;
+        dev->savedAdvInterval = newInterval;
+        dev->pendingParamSave = true;
+        dev->pendingAdvRefresh = true;
+        platform_log("[PARAM] Adv interval: %dms", dev->advInterval);
+        return STATUS_SUCCESS;
+    }
+    case CMD_FIND_INTERVAL_CONFIG: {
+        uint16_t newInterval = (uint16_t)val[0] | ((uint16_t)val[1] << 8);
+        dev->findModeInterval = newInterval;
+        dev->pendingParamSave = true;
+        if (dev->findModeActive) {
+            dev->advInterval = dev->findModeInterval;
+            dev->pendingAdvRefresh = true;
+        }
+        platform_log("[PARAM] Find interval: %dms", dev->findModeInterval);
+        return STATUS_SUCCESS;
+    }
+    case CMD_TX_POWER_CONFIG: {
+        dev->txPower = (int8_t)val[0];
+        dev->pendingParamSave = true;
+        dev->pendingAdvRefresh = true;
+        platform_log("[PARAM] TX power: %d dBm", dev->txPower);
+        return STATUS_SUCCESS;
+    }
+    case CMD_FINDMY_ENABLE: {
+        uint8_t action = val[0];
+        dev->findmyEnabled = (action == ACTION_ON);
+        dev->pendingFindmyChange = true;
+        dev->pendingParamSave = true;
+        platform_log("[PARAM] FindMy: %s", dev->findmyEnabled ? "enable" : "disable");
+        return STATUS_SUCCESS;
+    }
+    case CMD_FINDMY_PERIOD_CONFIG: {
+        uint8_t fakeFrame[3] = { CMD_FINDMY_PERIOD_CONFIG, val[0], 0 };
+        if (yuitag_device_findmy_period_config(fakeFrame, sizeof(fakeFrame))) {
+            dev->pendingParamSave = true;
+            dev->pendingFindmyChange = true;
+            return STATUS_SUCCESS;
+        }
+        return STATUS_FAILED;
+    }
+    case CMD_FINDMY_TX_POWER_CONFIG: {
+        dev->findmyTxPower = (int8_t)val[0];
+        dev->pendingParamSave = true;
+        platform_findmy_adv_set_tx_power(dev->findmyTxPower);
+        platform_log("[PARAM] FindMy TX power: %d dBm", dev->findmyTxPower);
+        return STATUS_SUCCESS;
+    }
+    case CMD_FINDMY_INTERVAL_CONFIG: {
+        dev->findmyAdvInterval = (uint16_t)val[0] | ((uint16_t)val[1] << 8);
+        dev->pendingParamSave = true;
+        platform_findmy_adv_set_interval(dev->findmyAdvInterval);
+        platform_log("[PARAM] FindMy adv interval: %dms", dev->findmyAdvInterval);
+        return STATUS_SUCCESS;
+    }
+    default:
+        return STATUS_UNKNOWN_CMD;
+    }
+}
+
+static uint8_t param_write_internal(YuiTagDevice *dev, const uint8_t *cipherData, size_t len, uint8_t *outSeq)
+{
+    if (outSeq) *outSeq = 0x00;
+
     if (!dev->isBound) {
         platform_log("[PARAM] Rejected: unbound");
         return STATUS_FAILED;
     }
 
-    if (len < FRAME_MIN_LEN) {
-        return STATUS_FAILED;
+    // 静态缓冲区：避免 BT_RX 线程栈分配 208B
+    static uint8_t decBuf[PARAM_DECRYPT_BUF_MAX_LEN];
+    size_t plainLen = 0;
+    uint8_t reqSeq = 0;
+    uint8_t decStatus = decrypt_frame_v2(cipherData, len, decBuf, sizeof(decBuf), &plainLen, &reqSeq);
+    if (outSeq) *outSeq = reqSeq;
+
+    uint8_t status = STATUS_FAILED;
+    if (decStatus != STATUS_SUCCESS) {
+        status = decStatus;
+        goto cleanup;
+    }
+    if (plainLen < FRAME_MIN_LEN) {
+        goto cleanup;
     }
 
-    if (len > PARAM_DECRYPT_BUF_MAX_LEN) {
-        platform_log("[PARAM] Rejected: too long %d (max %d)",
-                     len, PARAM_DECRYPT_BUF_MAX_LEN);
-        return STATUS_FAILED;
-    }
-
-    uint8_t decBuf[PARAM_DECRYPT_BUF_MAX_LEN];
-    if (!yuitag_crypto_aes_ctr(cipherData, len, decBuf)) {
-        return STATUS_AES_DECRYPT_ERROR;
-    }
+    // 刷新心跳活跃时间
+    dev->lastHeartbeatMs = platform_millis();
 
     uint8_t cmdId = decBuf[0];
 
-    if (yuitag_crypto_crc8(decBuf, len - 1) != decBuf[len - 1]) {
-        return STATUS_CRC_ERROR;
-    }
+    if (cmdId == CMD_FINDMY_KEYS_SYNC) {
+        status = yuitag_device_handle_keys_sync(dev, decBuf, plainLen);
+    } else if (cmdId == CMD_PARAM_BATCH_WRITE) {
+        // 批量参数写: [0x70, SubOp, Len, Val..., CRC8]
+        size_t offset = 1;
+        size_t endOffset = plainLen - 1;
+        size_t itemCount = 0;
+        uint8_t preStatus = STATUS_SUCCESS;
 
-    uint8_t status = STATUS_FAILED;
+        // 第一遍：全量校验 TLV 与子参数，保证原子性
+        while (offset + 2 <= endOffset) {
+            uint8_t subOp = decBuf[offset];
+            uint8_t itemLen = decBuf[offset + 1];
+            offset += 2;
+            if (offset + itemLen > endOffset) {
+                preStatus = STATUS_FAILED;
+                break;
+            }
+            uint8_t itemValid = validate_single_param(dev, subOp, &decBuf[offset], itemLen);
+            if (itemValid != STATUS_SUCCESS) {
+                preStatus = itemValid;
+                break;
+            }
+            offset += itemLen;
+            itemCount++;
+        }
 
-    switch (cmdId) {
-    case CMD_NAME_WRITE: {
-        size_t nameLen = len - 2;
-        if (nameLen > 0 && nameLen <= DEVICE_NAME_MAX_LEN) {
-            memcpy(dev->deviceName, decBuf + 1, nameLen);
-            dev->deviceName[nameLen] = '\0';
-            dev->pendingParamSave = true;
-            platform_ble_set_device_name(dev->deviceName);
+        if (preStatus != STATUS_SUCCESS || itemCount == 0 || offset != endOffset) {
+            status = (preStatus != STATUS_SUCCESS) ? preStatus : STATUS_FAILED;
+        } else {
+            // 第二遍：依次应用参数
+            offset = 1;
             status = STATUS_SUCCESS;
-            dev->pendingAdvRefresh = true;
-            platform_log("[PARAM] Name: %s", dev->deviceName);
-        }
-        break;
-    }
-    case CMD_INTERVAL_CONFIG: {
-        if (len >= 4) {
-            uint16_t newInterval = decBuf[1] | ((uint16_t)decBuf[2] << 8);
-            if (newInterval >= ADV_INTERVAL_MIN_MS && newInterval <= ADV_INTERVAL_MAX_MS) {
-                dev->advInterval = newInterval;
-                dev->savedAdvInterval = newInterval;
-                dev->pendingParamSave = true;
-                status = STATUS_SUCCESS;
-                dev->pendingAdvRefresh = true;
-                platform_log("[PARAM] Adv interval: %dms", dev->advInterval);
-            }
-        }
-        break;
-    }
-    case CMD_FIND_INTERVAL_CONFIG: {
-        if (len >= 4) {
-            uint16_t newInterval = decBuf[1] | ((uint16_t)decBuf[2] << 8);
-            if (newInterval >= ADV_INTERVAL_MIN_MS && newInterval <= ADV_INTERVAL_MAX_MS) {
-                dev->findModeInterval = newInterval;
-                dev->pendingParamSave = true;
-                if (dev->findModeActive) {
-                    dev->advInterval = dev->findModeInterval;
-                    dev->pendingAdvRefresh = true;
-                }
-                status = STATUS_SUCCESS;
-                platform_log("[PARAM] Find interval: %dms", dev->findModeInterval);
-            }
-        }
-        break;
-    }
-    case CMD_TX_POWER_CONFIG: {
-        if (len >= 3) {
-            int8_t newPower = (int8_t)decBuf[1];
-            if (newPower >= HW_TX_POWER_MIN && newPower <= HW_TX_POWER_MAX) {
-                dev->txPower = newPower;
-                dev->pendingParamSave = true;
-                dev->pendingAdvRefresh = true;
-                status = STATUS_SUCCESS;
-                platform_log("[PARAM] TX power: %d dBm", dev->txPower);
-            } else {
-                platform_log("[PARAM] TX power rejected (%d dBm out of [%d, %d])",
-                             newPower, HW_TX_POWER_MIN, HW_TX_POWER_MAX);
-            }
-        }
-        break;
-    }
-    case CMD_FINDMY_KEYS_SYNC: {
-        status = yuitag_device_handle_keys_sync(dev, decBuf, len);
-        break;
-    }
-    case CMD_FINDMY_ENABLE: {
-        if (len >= 3) {
-            uint8_t action = decBuf[1];
-            if (action == ACTION_ON) {
-#ifndef IS_SPARKS
-                if (!yuitag_findmy_is_time_synced()) {
-                    platform_log("[PARAM] FindMy enable rejected: time not synced");
-                    status = STATUS_FAILED;
+            while (offset + 2 <= endOffset) {
+                uint8_t subOp = decBuf[offset];
+                uint8_t itemLen = decBuf[offset + 1];
+                offset += 2;
+                uint8_t itemStatus = apply_single_param(dev, subOp, &decBuf[offset], itemLen);
+                if (itemStatus != STATUS_SUCCESS) {
+                    status = itemStatus;
                     break;
                 }
-#else
-                uint16_t count = platform_storage_load_u16(NVM3_KEY_FINDMY_KEY_COUNT, 0);
-                if (count < FINDMY_MIN_KEYS) {
-                    platform_log("[PARAM] FindMy enable rejected: no keys configured (%d)", count);
-                    status = STATUS_FAILED;
-                    break;
-                }
-#endif
-                dev->findmyEnabled = true;
-                dev->pendingFindmyChange = true;
-                dev->pendingParamSave = true;
-                status = STATUS_SUCCESS;
-                platform_log("[PARAM] FindMy: enable");
-            } else if (action == ACTION_OFF) {
-                dev->findmyEnabled = false;
-                dev->pendingFindmyChange = true;
-                dev->pendingParamSave = true;
-                status = STATUS_SUCCESS;
-                platform_log("[PARAM] FindMy: disable");
+                offset += itemLen;
             }
         }
-        break;
-    }
-    case CMD_FINDMY_PERIOD_CONFIG: {
-        if (yuitag_device_findmy_period_config(decBuf, len)) {
-            dev->pendingParamSave = true;
-            dev->pendingFindmyChange = true;
-            status = STATUS_SUCCESS;
-        }
-        break;
-    }
-    case CMD_FINDMY_TX_POWER_CONFIG: {
-        if (len >= 3) {
-            int8_t newPower = (int8_t)decBuf[1];
-            if (newPower >= HW_TX_POWER_MIN && newPower <= HW_TX_POWER_MAX) {
-                dev->findmyTxPower = newPower;
-                dev->pendingParamSave = true;
-                platform_findmy_adv_set_tx_power(dev->findmyTxPower);
-                status = STATUS_SUCCESS;
-                platform_log("[PARAM] FindMy TX power: %d dBm", dev->findmyTxPower);
-            } else {
-                platform_log("[PARAM] FindMy TX power rejected (%d dBm out of [%d, %d])",
-                             newPower, HW_TX_POWER_MIN, HW_TX_POWER_MAX);
-            }
-        }
-        break;
-    }
-    case CMD_FINDMY_INTERVAL_CONFIG: {
-        if (len >= 4) {
-            uint16_t newInterval = (uint16_t)decBuf[1] | ((uint16_t)decBuf[2] << 8);
-            if (newInterval >= FINDMY_ADV_INTERVAL_MIN_MS && newInterval <= FINDMY_ADV_INTERVAL_MAX_MS) {
-                dev->findmyAdvInterval = newInterval;
-                dev->pendingParamSave = true;
-                platform_findmy_adv_set_interval(dev->findmyAdvInterval);
-                status = STATUS_SUCCESS;
-                platform_log("[PARAM] FindMy adv interval: %dms", dev->findmyAdvInterval);
-            } else {
-                platform_log("[PARAM] FindMy adv interval rejected (%dms out of [%d, %d])",
-                             newInterval, FINDMY_ADV_INTERVAL_MIN_MS, FINDMY_ADV_INTERVAL_MAX_MS);
-            }
-        }
-        break;
-    }
-    default:
-        status = STATUS_UNKNOWN_CMD;
-        break;
+        platform_log("[PARAM] Batch write (%d items) -> status=0x%02X", itemCount, status);
+    } else {
+        status = apply_single_param(dev, cmdId, decBuf + 1, plainLen - 2);
     }
 
     platform_log("[PARAM] cmdId=0x%02X -> status=0x%02X", cmdId, status);
+
+cleanup:
+    memset(decBuf, 0, sizeof(decBuf));
     return status;
+}
+
+uint8_t yuitag_device_param_write(YuiTagDevice *dev, const uint8_t *cipherData, size_t len)
+{
+    uint8_t reqSeq = 0;
+    return param_write_internal(dev, cipherData, len, &reqSeq);
 }
 
 static uint64_t s_keys_rx_mask = 0;
@@ -884,10 +991,6 @@ uint8_t yuitag_device_handle_keys_sync(YuiTagDevice *dev, const uint8_t *decBuf,
     }
 
     case SUB_OP_KEYS_DATA: {
-        if (len < (3 + FINDMY_KEY_LEN + 1)) {
-            platform_log("[KEYS_SYNC] DATA rejected: len=%d", len);
-            return STATUS_FAILED;
-        }
         if (s_keys_expected_total < FINDMY_MIN_KEYS) {
             platform_log("[KEYS_SYNC] DATA rejected: no session");
             return STATUS_FAILED;
@@ -899,17 +1002,36 @@ uint8_t yuitag_device_handle_keys_sync(YuiTagDevice *dev, const uint8_t *decBuf,
             return STATUS_FAILED;
         }
 
-        uint8_t index = decBuf[2];
-        if (index >= s_keys_expected_total) {
-            platform_log("[KEYS_SYNC] DATA rejected: index=%d >= %d",
-                         index, s_keys_expected_total);
+        if (len < (4 + FINDMY_KEY_LEN + 1)) {
+            platform_log("[KEYS_SYNC] DATA rejected: len=%d", len);
+            return STATUS_FAILED;
+        }
+
+        // 批量公钥: [0x66, 0x02, startIndex, keyCount, keys(N*28B), crc8]
+        uint8_t startIndex = decBuf[2];
+        uint8_t keyCount = decBuf[3];
+        size_t keyDataOffset = 4;
+        if (keyCount == 0 || len != (4 + (size_t)keyCount * FINDMY_KEY_LEN + 1)) {
+            platform_log("[KEYS_SYNC] DATA rejected: invalid batch len=%d count=%d", len, keyCount);
+            return STATUS_FAILED;
+        }
+
+        if ((uint16_t)startIndex + keyCount > s_keys_expected_total) {
+            platform_log("[KEYS_SYNC] DATA rejected: range [%d..%d) >= %d",
+                         startIndex, startIndex + keyCount, s_keys_expected_total);
             return STATUS_FAILED;
         }
 
         s_keys_session_last_rx_ms = platform_millis();
-        platform_storage_save_bytes(NVM3_KEY_FINDMY_KEY_BASE + index, &decBuf[3], FINDMY_KEY_LEN);
-        s_keys_rx_mask |= ((uint64_t)1 << index);
-        platform_log("[KEYS_SYNC] DATA: slot %d/%d saved to storage", index, s_keys_expected_total);
+        for (uint8_t k = 0; k < keyCount; k++) {
+            uint8_t idx = startIndex + k;
+            platform_storage_save_bytes(NVM3_KEY_FINDMY_KEY_BASE + idx,
+                                        &decBuf[keyDataOffset + (size_t)k * FINDMY_KEY_LEN],
+                                        FINDMY_KEY_LEN);
+            s_keys_rx_mask |= ((uint64_t)1 << idx);
+        }
+        platform_log("[KEYS_SYNC] DATA: slots [%d..%d)/%d saved",
+                     startIndex, startIndex + keyCount, s_keys_expected_total);
         return STATUS_SUCCESS;
     }
 
@@ -942,6 +1064,7 @@ uint8_t yuitag_device_handle_keys_sync(YuiTagDevice *dev, const uint8_t *decBuf,
         dev->findmyEnabled = true;
         dev->pendingFindmyChange = true;
         dev->pendingParamSave = true;
+        dev->pendingAdvRefresh = true;
 
 #ifdef IS_SPARKS
         yuitag_findmy_reload_keys();
@@ -1036,6 +1159,7 @@ void yuitag_device_process_events(YuiTagDevice *dev)
         yuitag_device_clear_binding(dev);
         platform_ble_update_advertising(dev, true);
         platform_ble_update_dis_values(dev);
+        platform_ble_update_param_value(dev);
     }
 
     // 7. bind save
@@ -1063,12 +1187,14 @@ void yuitag_device_process_events(YuiTagDevice *dev)
             yuitag_findmy_disable();
         }
         platform_ble_update_advertising(dev, true);
+        platform_ble_update_param_value(dev);
     }
 
     // 9. param save
     if (dev->pendingParamSave) {
         dev->pendingParamSave = false;
         yuitag_device_persist_params(dev);
+        platform_ble_update_param_value(dev);
     }
 }
 
@@ -1081,7 +1207,7 @@ void yuitag_device_handle_cmd_write(YuiTagDevice *dev, const uint8_t *inData, si
         return;
     }
 
-    // 阶段 1: 绑定确认密文验证
+    // 阶段 1: 绑定验证 (返回 1B BIND_VERIFY_OK/FAIL)
     if (dev->waitingVerify && yuitag_crypto_has_aes_key() && !dev->isBound) {
         platform_log("[VERIFY] Received encrypted verify data (%d bytes)", inLen);
         if (yuitag_device_bind_verify(dev, inData, inLen)) {
@@ -1103,38 +1229,50 @@ void yuitag_device_handle_cmd_write(YuiTagDevice *dev, const uint8_t *inData, si
     if (!dev->isBound) {
         platform_log("[CMD] Rejected: unbound");
         resp->channel = YUITAG_NOTIFY_CMD;
-        resp->data[0] = 0x00;
+        resp->data[0] = (inLen >= (V2_HEADER_LEN + 2)) ? inData[0] : 0x00;
         resp->data[1] = STATUS_FAILED;
         resp->len = 2;
         return;
     }
 
-    // 阶段 2: 常规加密业务指令
-    uint8_t cmdId = 0, action = 0;
+    // 阶段 2: 常规加密指令
     uint8_t plain[CMD_DECRYPT_BUF_MAX_LEN];
-    uint8_t status = yuitag_device_decrypt_validate(dev, inData, inLen, &cmdId, &action, plain);
-    if (status != STATUS_SUCCESS) {
+    size_t plainLen = 0;
+    uint8_t reqSeq = 0;
+    uint8_t cmdId = 0;
+    uint8_t action = 0;
+    uint8_t status = decrypt_frame_v2(inData, inLen, plain, sizeof(plain), &plainLen, &reqSeq);
+    if (status != STATUS_SUCCESS || plainLen < FRAME_MIN_LEN) {
         resp->channel = YUITAG_NOTIFY_CMD;
-        resp->data[0] = 0x00;
-        resp->data[1] = status;
+        resp->data[0] = reqSeq;
+        resp->data[1] = (status != STATUS_SUCCESS) ? status : STATUS_FAILED;
         resp->len = 2;
-        return;
+        goto cleanup;
     }
+
+    // 刷新心跳活跃时间
+    dev->lastHeartbeatMs = platform_millis();
+
+    cmdId  = plain[0];
+    action = plain[1];
 
     if (cmdId == CMD_BIND_VERIFY) {
         resp->channel = YUITAG_NOTIFY_NONE;
         resp->len = 0;
-        return;
+        goto cleanup;
     }
 
 #ifndef IS_SPARKS
     if (cmdId == CMD_FINDMY_TIME_SYNC) {
-        uint8_t syncStatus = yuitag_device_findmy_handle_time_sync(plain, inLen);
+        uint8_t syncStatus = yuitag_device_findmy_handle_time_sync(plain, plainLen);
+        if (syncStatus == STATUS_SUCCESS) {
+            dev->pendingAdvRefresh = true;
+        }
         resp->channel = YUITAG_NOTIFY_CMD;
-        resp->data[0] = 0x00;
+        resp->data[0] = reqSeq;
         resp->data[1] = syncStatus;
         resp->len = 2;
-        return;
+        goto cleanup;
     }
 #endif
 
@@ -1158,7 +1296,7 @@ void yuitag_device_handle_cmd_write(YuiTagDevice *dev, const uint8_t *inData, si
         resp->len = 10;
         platform_log("[FINDMY] Status sent: synced=%d time=%lu period=%lu",
                      resp->data[1], curTime, curPeriod);
-        return;
+        goto cleanup;
     }
 #endif
 
@@ -1166,16 +1304,19 @@ void yuitag_device_handle_cmd_write(YuiTagDevice *dev, const uint8_t *inData, si
     if (cmdId == CMD_HEARTBEAT && status == STATUS_NO_REPLY) {
         resp->channel = YUITAG_NOTIFY_NONE;
         resp->len = 0;
-        return;
+        goto cleanup;
     }
 
     resp->channel = YUITAG_NOTIFY_CMD;
-    resp->data[0] = 0x00;
+    resp->data[0] = reqSeq;
     resp->data[1] = status;
     resp->len = 2;
 
-    platform_log("[CMD] cmdId=0x%02X action=0x%02X -> status=0x%02X",
-                 cmdId, action, status);
+    platform_log("[CMD] seq=0x%02X cmdId=0x%02X action=0x%02X -> status=0x%02X",
+                 reqSeq, cmdId, action, status);
+
+cleanup:
+    memset(plain, 0, sizeof(plain));
 }
 
 void yuitag_device_handle_param_write(YuiTagDevice *dev, const uint8_t *inData, size_t inLen, yuitag_response_t *resp)
@@ -1190,15 +1331,16 @@ void yuitag_device_handle_param_write(YuiTagDevice *dev, const uint8_t *inData, 
     if (!dev->isBound) {
         platform_log("[PARAM] Rejected: unbound");
         resp->channel = YUITAG_NOTIFY_PARAM;
-        resp->data[0] = 0x00;
+        resp->data[0] = (inLen >= (V2_HEADER_LEN + 2)) ? inData[0] : 0x00;
         resp->data[1] = STATUS_FAILED;
         resp->len = 2;
         return;
     }
 
-    uint8_t status = yuitag_device_param_write(dev, inData, inLen);
+    uint8_t reqSeq = 0;
+    uint8_t status = param_write_internal(dev, inData, inLen, &reqSeq);
     resp->channel = YUITAG_NOTIFY_PARAM;
-    resp->data[0] = 0x00;
+    resp->data[0] = reqSeq;
     resp->data[1] = status;
     resp->len = 2;
 }

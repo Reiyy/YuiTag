@@ -48,8 +48,8 @@ void platform_storage_clear_all(void);
 // ---- 加密后端 (由各平台的 crypto_platform.c 实现) ----
 void platform_crypto_init(void);
 bool platform_crypto_sha256(const uint8_t *in, size_t len, uint8_t out[32]);
-bool platform_crypto_aes128_ctr(const uint8_t key[16],
-                                const uint8_t *in, size_t len, uint8_t *out);
+bool platform_crypto_aes128_ctr_iv(const uint8_t key[16], const uint8_t iv[16],
+                                   const uint8_t *in, size_t len, uint8_t *out);
 void platform_crypto_random(uint8_t *buf, size_t len);
 
 // ---- ECDH 密钥协商 (仅 Starlight) ----
